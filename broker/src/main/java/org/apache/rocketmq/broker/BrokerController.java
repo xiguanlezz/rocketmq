@@ -929,6 +929,8 @@ public class BrokerController {
     }
 
     public synchronized void registerBrokerAll(final boolean checkOrderConfig, boolean oneway, boolean forceRegister) {
+        // 根据topicConfigManager中的数据封装topic信息
+        // topicConfigManager中topic来源有两个：1. broker启动时默认创建的topic；2. 从本地文件中读取
         TopicConfigSerializeWrapper topicConfigWrapper = this.getTopicConfigManager().buildTopicConfigSerializeWrapper();
 
         if (!PermName.isWriteable(this.getBrokerConfig().getBrokerPermission())
@@ -948,6 +950,7 @@ public class BrokerController {
             this.brokerConfig.getBrokerName(),
             this.brokerConfig.getBrokerId(),
             this.brokerConfig.getRegisterBrokerTimeoutMills())) {
+            // 往namesrv发起注册broker请求
             doRegisterBrokerAll(checkOrderConfig, oneway, topicConfigWrapper);
         }
     }
@@ -989,6 +992,7 @@ public class BrokerController {
         final int timeoutMills) {
 
         TopicConfigSerializeWrapper topicConfigWrapper = this.getTopicConfigManager().buildTopicConfigSerializeWrapper();
+        // 并发请求namesrv查看对应broker的版本号，如果不一致就是需要注册
         List<Boolean> changeList = brokerOuterAPI.needRegister(clusterName, brokerAddr, brokerName, brokerId, topicConfigWrapper, timeoutMills);
         boolean needRegister = false;
         for (Boolean changed : changeList) {

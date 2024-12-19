@@ -89,13 +89,17 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             case RequestCode.QUERY_DATA_VERSION:
                 return queryBrokerTopicConfig(ctx, request);
             case RequestCode.REGISTER_BROKER:
+                // broker首次启动时
                 Version brokerVersion = MQVersion.value2Version(request.getVersion());
                 if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
                     return this.registerBrokerWithFilterServer(ctx, request);
                 } else {
+                    // 参数一：包装serverHandler的ctx
+                    // 参数二：客户端发送过来的请求对象
                     return this.registerBroker(ctx, request);
                 }
             case RequestCode.UNREGISTER_BROKER:
+
                 return this.unregisterBroker(ctx, request);
             case RequestCode.GET_ROUTEINFO_BY_TOPIC:
                 return this.getRouteInfoByTopic(ctx, request);
@@ -238,10 +242,12 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
         return response;
     }
 
-    private boolean checksum(ChannelHandlerContext ctx, RemotingCommand request,
+    private boolean  checksum(ChannelHandlerContext ctx, RemotingCommand request,
         RegisterBrokerRequestHeader requestHeader) {
+        // bodyCrc32为客户端那边对body计算出来的CRC值
         if (requestHeader.getBodyCrc32() != 0) {
             final int crc32 = UtilAll.crc32(request.getBody());
+            // 服务端这边会再次对body计算CRC值，如果两者不一致，说明数据被篡改或者丢了数据
             if (crc32 != requestHeader.getBodyCrc32()) {
                 log.warn(String.format("receive registerBroker request,crc32 not match,from %s",
                     RemotingHelper.parseChannelRemoteAddr(ctx.channel())));
@@ -277,8 +283,10 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
     public RemotingCommand registerBroker(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
+        // 创建响应对象（对象中有个CommandCustomHeader接口，不同请求会带有不同实现），其中会反射创建RegisterBrokerResponseHeader对象作为customHeader
         final RemotingCommand response = RemotingCommand.createResponseCommand(RegisterBrokerResponseHeader.class);
         final RegisterBrokerResponseHeader responseHeader = (RegisterBrokerResponseHeader) response.readCustomHeader();
+        // 将cmd中extFields的写入到RegisterBrokerRequestHeader对象中
         final RegisterBrokerRequestHeader requestHeader =
             (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
 
@@ -290,6 +298,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
         TopicConfigSerializeWrapper topicConfigWrapper;
         if (request.getBody() != null) {
+            // 反序列化body，得到当前节点的主题信息（注册broker请求的序列化方式为JSON）
             topicConfigWrapper = TopicConfigSerializeWrapper.decode(request.getBody(), TopicConfigSerializeWrapper.class);
         } else {
             topicConfigWrapper = new TopicConfigSerializeWrapper();
@@ -297,6 +306,14 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             topicConfigWrapper.getDataVersion().setTimestamp(0);
         }
 
+        // 参数一：集群
+        // 参数二：节点IP地址
+        // 参数三：brokerName
+        // 参数四：brokerId。brokerId为0的节点为主节点
+        // 参数五：HA节点IP地址
+        // 参数六：当前节点的主题信息
+        // 参数七：过滤的服务器列表
+        // 参数八：服务端与客户端建立的channel
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),
@@ -308,9 +325,10 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             ctx.channel()
         );
 
+        // 将结果信息写入responseHeader中
         responseHeader.setHaServerAddr(result.getHaServerAddr());
         responseHeader.setMasterAddr(result.getMasterAddr());
-
+        // 获取kv配置，写入response body中。kv配置和顺序消息有关
         byte[] jsonValue = this.namesrvController.getKvConfigManager().getKVListByNamespace(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG);
         response.setBody(jsonValue);
         response.setCode(ResponseCode.SUCCESS);

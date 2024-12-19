@@ -19,5 +19,6 @@ package org.apache.rocketmq.remoting;
 import org.apache.rocketmq.remoting.netty.ResponseFuture;
 
 public interface InvokeCallback {
+    // 这个回调没有区分请求发送成功和请求发送失败。。。
     void operationComplete(final ResponseFuture responseFuture);
 }

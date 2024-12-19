@@ -46,15 +46,23 @@ public class NamesrvController {
 
     private final NettyServerConfig nettyServerConfig;
 
+    // 单线程定时任务线程池，主要负责两件事情：1. 检查broker存活状态；2. 打印配置
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "NSScheduledThread"));
+    // 管理kv对象
     private final KVConfigManager kvConfigManager;
+    // 管理路由信息的对象
     private final RouteInfoManager routeInfoManager;
 
+    // namesrv网络层对象
     private RemotingServer remotingServer;
 
+    // 监听channel状态，channel状态发生改变时，close idle会向事件队列添加事件，事件最终会由该service处理
     private BrokerHousekeepingService brokerHousekeepingService;
 
+    // 业务线程池
+    // 总共有两种线程池，一种是Netty线程池，该线程池负责将报文解析为RemotingCommand对象
+    // 业务线程池接收到RemotingCommand对象后，执行后续处理逻辑
     private ExecutorService remotingExecutor;
 
     private Configuration configuration;
@@ -77,15 +85,18 @@ public class NamesrvController {
 
         this.kvConfigManager.load();
 
+        // 创建网络服务器对象
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
+        // 创建业务线程池
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        // 注册协议处理器
         this.registerProcessor();
 
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
-
+            // 每10秒检查broker状态，将idle状态的broker删除
             @Override
             public void run() {
                 NamesrvController.this.routeInfoManager.scanNotActiveBroker();
@@ -93,7 +104,7 @@ public class NamesrvController {
         }, 5, 10, TimeUnit.SECONDS);
 
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
-
+            // 每10分钟打印kv配置
             @Override
             public void run() {
                 NamesrvController.this.kvConfigManager.printAllPeriodically();
@@ -147,7 +158,8 @@ public class NamesrvController {
             this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()),
                 this.remotingExecutor);
         } else {
-
+            // 参数一：默认的协议处理器
+            // 参数二：协议处理器执行的线程池即业务线程池
             this.remotingServer.registerDefaultProcessor(new DefaultRequestProcessor(this), this.remotingExecutor);
         }
     }

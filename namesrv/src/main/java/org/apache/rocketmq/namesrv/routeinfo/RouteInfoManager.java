@@ -108,6 +108,7 @@ public class RouteInfoManager {
         final TopicConfigSerializeWrapper topicConfigWrapper,
         final List<String> filterServerList,
         final Channel channel) {
+        // 创建返回结果的封装对象
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
@@ -115,20 +116,26 @@ public class RouteInfoManager {
 
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
+                    // 说明当前集群是首次注册到namesrv中
                     brokerNames = new HashSet<String>();
                     this.clusterAddrTable.put(clusterName, brokerNames);
                 }
+                // 将当前broker加入集群set中
                 brokerNames.add(brokerName);
 
                 boolean registerFirst = false;
 
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
+                    // 说明当前broker是首次注册
                     registerFirst = true;
                     brokerData = new BrokerData(clusterName, brokerName, new HashMap<Long, String>());
+                    // 将broker映射数据加入broker映射表中
                     this.brokerAddrTable.put(brokerName, brokerData);
                 }
                 Map<Long, String> brokerAddrsMap = brokerData.getBrokerAddrs();
+
+                // broker可能从从节点变为了主节点，需要确保路由信息中对于某个broker地址只存在一条记录，所以这里先会删除之前的记录
                 //Switch slave to master: first remove <1, IP:PORT> in namesrv, then add <0, IP:PORT>
                 //The same IP:PORT must only have one record in brokerAddrTable
                 Iterator<Entry<Long, String>> it = brokerAddrsMap.entrySet().iterator();
@@ -138,24 +145,27 @@ public class RouteInfoManager {
                         it.remove();
                     }
                 }
-
+                // 重写记录
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 registerFirst = registerFirst || (null == oldAddr);
 
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) {
+                    // 判断当前传过来的broker版本和namesrv上的broker版本
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
                         || registerFirst) {
                         ConcurrentMap<String, TopicConfig> tcTable =
                             topicConfigWrapper.getTopicConfigTable();
                         if (tcTable != null) {
                             for (Map.Entry<String, TopicConfig> entry : tcTable.entrySet()) {
+                                // 根据传过来的数据（某个节点上的topic中的queue），更新namesrv上的topicQueueTable数据（key为topic，value为queue列表）
                                 this.createAndUpdateQueueData(brokerName, entry.getValue());
                             }
                         }
                     }
                 }
 
+                // 添加当前broker节点的brokerLiveInfo信息
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
                         System.currentTimeMillis(),
@@ -179,12 +189,14 @@ public class RouteInfoManager {
                     if (masterAddr != null) {
                         BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.get(masterAddr);
                         if (brokerLiveInfo != null) {
+                            // 如果当前节点是从节点，那就找到对应的主节点，塞入响应结果中
                             result.setHaServerAddr(brokerLiveInfo.getHaServerAddr());
                             result.setMasterAddr(masterAddr);
                         }
                     }
                 }
             } finally {
+                // 释放锁
                 this.lock.writeLock().unlock();
             }
         } catch (Exception e) {
@@ -295,7 +307,9 @@ public class RouteInfoManager {
         final long brokerId) {
         try {
             try {
+                // 加写锁
                 this.lock.writeLock().lockInterruptibly();
+                // 移除broker的存活信息
                 BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.remove(brokerAddr);
                 log.info("unregisterBroker, remove from brokerLiveTable {}, {}",
                     brokerLiveInfo != null ? "OK" : "Failed",
@@ -341,6 +355,7 @@ public class RouteInfoManager {
                     this.removeTopicByBrokerName(brokerName);
                 }
             } finally {
+                // 释放锁
                 this.lock.writeLock().unlock();
             }
         } catch (Exception e) {
@@ -440,6 +455,11 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 调用入口：1. 定时任务扫描broker；2.
+     * @param remoteAddr
+     * @param channel
+     */
     public void onChannelDestroy(String remoteAddr, Channel channel) {
         String brokerAddrFound = null;
         if (channel != null) {

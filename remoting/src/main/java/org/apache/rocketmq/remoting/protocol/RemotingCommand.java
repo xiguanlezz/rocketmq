@@ -113,7 +113,9 @@ public class RemotingCommand {
     public static RemotingCommand createResponseCommand(int code, String remark,
         Class<? extends CommandCustomHeader> classHeader) {
         RemotingCommand cmd = new RemotingCommand();
+        // 设置响应类型的请求标记
         cmd.markResponseType();
+        // 设置业务请求标记
         cmd.setCode(code);
         cmd.setRemark(remark);
         setCmdVersion(cmd);
@@ -147,6 +149,7 @@ public class RemotingCommand {
         int headerLength = getHeaderLength(oriHeaderLen);
 
         byte[] headerData = new byte[headerLength];
+        // 先读header
         byteBuffer.get(headerData);
 
         RemotingCommand cmd = headerDecode(headerData, getProtocolType(oriHeaderLen));
@@ -155,6 +158,7 @@ public class RemotingCommand {
         byte[] bodyData = null;
         if (bodyLength > 0) {
             bodyData = new byte[bodyLength];
+            // 再读body
             byteBuffer.get(bodyData);
         }
         cmd.body = bodyData;
@@ -360,6 +364,7 @@ public class RemotingCommand {
     }
 
     private byte[] headerEncode() {
+        // 将customHeader中的数据塞到extFields上
         this.makeCustomHeaderToNet();
         if (SerializeType.ROCKETMQ == serializeTypeCurrentRPC) {
             return RocketMQSerializable.rocketMQProtocolEncode(this);
