@@ -68,8 +68,10 @@ public class TopicPublishInfo {
 
     public MessageQueue selectOneMessageQueue(final String lastBrokerName) {
         if (lastBrokerName == null) {
+            // 如果是第一次发送消息，那就是一个自增索引和队列数量取模
             return selectOneMessageQueue();
         } else {
+            // 无非就是多试几次
             for (int i = 0; i < this.messageQueueList.size(); i++) {
                 int index = this.sendWhichQueue.getAndIncrement();
                 int pos = Math.abs(index) % this.messageQueueList.size();
