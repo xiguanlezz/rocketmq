@@ -50,9 +50,13 @@ public class RouteInfoManager {
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
+    // broker地址映射表
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    // broker集群映射表
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    // broker channel的映射表
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    // broker过滤地址的映射表，RocketMQ5移除了这个映射表，已经不推荐使用相关方法了
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
@@ -99,6 +103,9 @@ public class RouteInfoManager {
         return topicList.encode();
     }
 
+    /**
+     * broker注册方法
+     */
     public RegisterBrokerResult registerBroker(
         final String clusterName,
         final String brokerAddr,
@@ -300,6 +307,9 @@ public class RouteInfoManager {
         return wipeTopicCnt;
     }
 
+    /**
+     * 注销broker
+     */
     public void unregisterBroker(
         final String clusterName,
         final String brokerAddr,
@@ -386,6 +396,9 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 获取topic的路由数据
+     */
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
         boolean foundQueueData = false;
@@ -456,9 +469,7 @@ public class RouteInfoManager {
     }
 
     /**
-     * 调用入口：1. 定时任务扫描broker；2.
-     * @param remoteAddr
-     * @param channel
+     * 调用入口：1. 定时任务扫描broker；2. namesrv网络服务端对象中connectionManageHandler中监听到通道“销毁”
      */
     public void onChannelDestroy(String remoteAddr, Channel channel) {
         String brokerAddrFound = null;

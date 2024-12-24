@@ -62,16 +62,19 @@ public abstract class NettyRemotingAbstract {
     /**
      * Semaphore to limit maximum number of on-going one-way requests, which protects system memory footprint.
      */
+    // namesrv给broker发起oneway请求时的并发限制
     protected final Semaphore semaphoreOneway;
 
     /**
      * Semaphore to limit maximum number of on-going asynchronous requests, which protects system memory footprint.
      */
+    // namesrv给broker发起异步请求时的并发限制
     protected final Semaphore semaphoreAsync;
 
     /**
      * This map caches all on-going requests.
      */
+    // 用于辅助namesrv给broker发起异步请求的响应映射表
     protected final ConcurrentMap<Integer /* opaque */, ResponseFuture> responseTable =
         new ConcurrentHashMap<Integer, ResponseFuture>(256);
 
@@ -85,6 +88,7 @@ public abstract class NettyRemotingAbstract {
     /**
      * Executor to feed netty events to user defined {@link ChannelEventListener}.
      */
+    // 从阻塞队列中获取连接事件并通知相关的监听器
     protected final NettyEventExecutor nettyEventExecutor = new NettyEventExecutor();
 
     /**

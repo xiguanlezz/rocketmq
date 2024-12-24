@@ -97,6 +97,7 @@ public class KVConfigManager {
                 String content = kvConfigSerializeWrapper.toJson();
 
                 if (null != content) {
+                    // 写入文件。先创建临时文件，然后将之前的配置文件变为bak文件，最后将临时文件写入为kvConfig.json文件
                     MixAll.string2File(content, this.namesrvController.getNamesrvConfig().getKvConfigPath());
                 }
             } catch (IOException e) {
