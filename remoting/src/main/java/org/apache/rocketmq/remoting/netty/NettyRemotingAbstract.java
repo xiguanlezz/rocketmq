@@ -85,6 +85,7 @@ public abstract class NettyRemotingAbstract {
     /**
      * Executor to feed netty events to user defined {@link ChannelEventListener}.
      */
+    // 从阻塞队列中获取连接事件并通知相关的监听器
     protected final NettyEventExecutor nettyEventExecutor = new NettyEventExecutor();
 
     /**

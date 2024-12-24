@@ -99,6 +99,9 @@ public class RouteInfoManager {
         return topicList.encode();
     }
 
+    /**
+     * broker注册方法
+     */
     public RegisterBrokerResult registerBroker(
         final String clusterName,
         final String brokerAddr,
@@ -300,6 +303,9 @@ public class RouteInfoManager {
         return wipeTopicCnt;
     }
 
+    /**
+     * 注销broker
+     */
     public void unregisterBroker(
         final String clusterName,
         final String brokerAddr,
@@ -386,6 +392,9 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 获取topic的路由数据
+     */
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
         boolean foundQueueData = false;
