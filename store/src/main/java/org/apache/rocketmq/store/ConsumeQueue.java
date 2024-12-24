@@ -28,19 +28,29 @@ import org.apache.rocketmq.store.config.StorePathConfigHelper;
 public class ConsumeQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 每个XQData数据单元的固定大小，20byte（字节）
     public static final int CQ_STORE_UNIT_SIZE = 20;
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
+    // 存储模块
     private final DefaultMessageStore defaultMessageStore;
 
+    // storePath目录下的文件管理器
     private final MappedFileQueue mappedFileQueue;
+    // 主题
     private final String topic;
+    // 队列id（每个队列都有一个ConsumeQueue对象管理）
     private final int queueId;
+    // 用于插入新的CQData的临时缓冲区，大小为20byte
     private final ByteBuffer byteBufferIndex;
 
+    // 文件目录，../store/consumequeue/xxx_topic/0
     private final String storePath;
+    // 每个consumeQueue存储文件大小，默认为20 * 30W = 600W byte
     private final int mappedFileSize;
+    // 当前consumeQueue存储的最大消息物理偏移量
     private long maxPhysicOffset = -1;
+    // 当前consumeQueue存储的最小消息物理偏移量
     private volatile long minLogicOffset = 0;
     private ConsumeQueueExt consumeQueueExt = null;
 
@@ -57,12 +67,14 @@ public class ConsumeQueue {
         this.topic = topic;
         this.queueId = queueId;
 
+        // 拼接consumeQueue文件的目录
         String queueDir = this.storePath
             + File.separator + topic
             + File.separator + queueId;
 
         this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
 
+        // 创建20byte空间的缓冲区
         this.byteBufferIndex = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
 
         if (defaultMessageStore.getMessageStoreConfig().isEnableConsumeQueueExt()) {
@@ -76,6 +88,9 @@ public class ConsumeQueue {
         }
     }
 
+    /**
+     * ConsumeQueue启动阶段第一步：load
+     */
     public boolean load() {
         boolean result = this.mappedFileQueue.load();
         log.info("load consume queue " + this.topic + "-" + this.queueId + " " + (result ? "OK" : "Failed"));
@@ -85,6 +100,9 @@ public class ConsumeQueue {
         return result;
     }
 
+    /**
+     * ConsumeQueue启动阶段第二步：recover
+     */
     public void recover() {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
@@ -121,7 +139,7 @@ public class ConsumeQueue {
                 if (mappedFileOffset == mappedFileSizeLogics) {
                     index++;
                     if (index >= mappedFiles.size()) {
-
+                        // 所有文件都恢复完毕了
                         log.info("recover last consume queue file over, last mapped file "
                             + mappedFile.getFileName());
                         break;
@@ -221,6 +239,10 @@ public class ConsumeQueue {
         return 0;
     }
 
+    /**
+     * commitLog恢复阶段调用，将consumeQueue有效数据文件与commitLog文件对齐，将超出部分的数据文件删除掉
+     * @param phyOffet 准确无误的最大消息物理偏移量
+     */
     public void truncateDirtyLogicFiles(long phyOffet) {
 
         int logicFileSize = this.mappedFileSize;
@@ -376,10 +398,18 @@ public class ConsumeQueue {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
 
+    /**
+     * 上层DefaultMessageStore内部的异步线程调用。
+     * 存储模块开启了一个异步构建consumeQueue文件和索引文件的线程，该线程启动后会持续关注commitLog文件，
+     * 当commitLog文件内有新数据写入后，它立马读出来封装为DispatchRequest对象，转发给ConsumeQueue或者IndexService
+     * @param request
+     */
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
         final int maxRetries = 30;
+        // 获取consumeQueue标记位状态，表示是否可写
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
+            // 获取tagsCode
             long tagsCode = request.getTagsCode();
             if (isExtWriteEnable()) {
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
@@ -395,6 +425,12 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+
+            // 参数一：消息物理offset
+            // 参数二：消息size
+            // 参数三：tagsCode
+            // 参数四：消息逻辑偏移量（ConsumeQueue内的偏移量，转换成真实物理偏移量：消息逻辑偏移量 * 20）
+            // 正常返回值是true
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
@@ -402,6 +438,7 @@ public class ConsumeQueue {
                     this.defaultMessageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
+                // checkpoint，记录最后一条CQData的存储时间
                 this.defaultMessageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
                 return;
             } else {
@@ -431,13 +468,16 @@ public class ConsumeQueue {
         }
 
         this.byteBufferIndex.flip();
+        // 设置大小为20byte
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
+        // 将20byte数据加入到临时缓冲区
         this.byteBufferIndex.putLong(offset);
         this.byteBufferIndex.putInt(size);
         this.byteBufferIndex.putLong(tagsCode);
 
+        // 计算出在逻辑队列的真实物理地址：逻辑偏移量 * 20
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
-
+        // 根据真实物理地址获取mappedFile文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
@@ -470,7 +510,11 @@ public class ConsumeQueue {
                     );
                 }
             }
+
+            // expectLogicOffset = mf文件名 + mf.wrotePosition
+            // 赋值新值：当前消息物理偏移量 + 消息大小
             this.maxPhysicOffset = offset + size;
+            // 将CQData数据追加到mf文件内
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;
