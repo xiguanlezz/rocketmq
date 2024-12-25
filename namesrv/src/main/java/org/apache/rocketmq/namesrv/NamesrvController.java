@@ -71,8 +71,11 @@ public class NamesrvController {
     public NamesrvController(NamesrvConfig namesrvConfig, NettyServerConfig nettyServerConfig) {
         this.namesrvConfig = namesrvConfig;
         this.nettyServerConfig = nettyServerConfig;
+        // 创建kv配置管理器对象
         this.kvConfigManager = new KVConfigManager(this);
+        // 创建路由数据对象
         this.routeInfoManager = new RouteInfoManager();
+        // 创建channel状态的监听器
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
         this.configuration = new Configuration(
             log,
@@ -82,7 +85,7 @@ public class NamesrvController {
     }
 
     public boolean initialize() {
-
+        // 从kvConfig.json文件中加载配置
         this.kvConfigManager.load();
 
         // 创建网络服务器对象

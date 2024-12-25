@@ -239,6 +239,7 @@ public class RemotingCommand {
         Class<? extends CommandCustomHeader> classHeader) throws RemotingCommandException {
         CommandCustomHeader objectHeader;
         try {
+            // 反射创建具体的header对象
             objectHeader = classHeader.newInstance();
         } catch (InstantiationException e) {
             return null;
@@ -266,6 +267,7 @@ public class RemotingCommand {
                             String type = getCanonicalName(field.getType());
                             Object valueParsed;
 
+                            // 只支持String、int、long、double、boolean类型
                             if (type.equals(STRING_CANONICAL_NAME)) {
                                 valueParsed = value;
                             } else if (type.equals(INTEGER_CANONICAL_NAME_1) || type.equals(INTEGER_CANONICAL_NAME_2)) {
@@ -280,6 +282,7 @@ public class RemotingCommand {
                                 throw new RemotingCommandException("the custom field <" + fieldName + "> type is not supported");
                             }
 
+                            // 将extFields中的kv值以反射的形式赋值到之前创建出来的具体header对象中
                             field.set(objectHeader, valueParsed);
 
                         } catch (Throwable e) {

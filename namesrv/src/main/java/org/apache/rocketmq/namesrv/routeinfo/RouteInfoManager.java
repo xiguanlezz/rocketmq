@@ -49,6 +49,7 @@ public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    // 存储topic和其所属broker上的信息的映射表
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
     // broker地址映射表
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
@@ -104,7 +105,7 @@ public class RouteInfoManager {
     }
 
     /**
-     * broker注册方法
+     * broker注册方法，broker初次启动、每隔30秒都会调用该方法
      */
     public RegisterBrokerResult registerBroker(
         final String clusterName,
@@ -142,9 +143,9 @@ public class RouteInfoManager {
                 }
                 Map<Long, String> brokerAddrsMap = brokerData.getBrokerAddrs();
 
-                // broker可能从从节点变为了主节点，需要确保路由信息中对于某个broker地址只存在一条记录，所以这里先会删除之前的记录
                 //Switch slave to master: first remove <1, IP:PORT> in namesrv, then add <0, IP:PORT>
                 //The same IP:PORT must only have one record in brokerAddrTable
+                // broker可能从从节点变为了主节点，需要确保路由信息中对于某个broker地址只存在一条记录，所以这里先会删除之前的记录
                 Iterator<Entry<Long, String>> it = brokerAddrsMap.entrySet().iterator();
                 while (it.hasNext()) {
                     Entry<Long, String> item = it.next();
@@ -183,6 +184,7 @@ public class RouteInfoManager {
                     log.info("new broker registered, {} HAServer: {}", brokerAddr, haServerAddr);
                 }
 
+                // 非关键代码
                 if (filterServerList != null) {
                     if (filterServerList.isEmpty()) {
                         this.filterServerTable.remove(brokerAddr);
@@ -308,7 +310,7 @@ public class RouteInfoManager {
     }
 
     /**
-     * 注销broker
+     * 注销broker方法，broker在正常关闭时会调用这个方法
      */
     public void unregisterBroker(
         final String clusterName,
@@ -319,7 +321,7 @@ public class RouteInfoManager {
             try {
                 // 加写锁
                 this.lock.writeLock().lockInterruptibly();
-                // 移除broker的存活信息
+                // 从broker channel的映射表中移除对应broker地址的channel
                 BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.remove(brokerAddr);
                 log.info("unregisterBroker, remove from brokerLiveTable {}, {}",
                     brokerLiveInfo != null ? "OK" : "Failed",
@@ -331,6 +333,7 @@ public class RouteInfoManager {
                 boolean removeBrokerName = false;
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null != brokerData) {
+                    // broker地址映射表中删除该broker地址
                     String addr = brokerData.getBrokerAddrs().remove(brokerId);
                     log.info("unregisterBroker, remove addr from brokerAddrTable {}, {}",
                         addr != null ? "OK" : "Failed",
@@ -348,6 +351,7 @@ public class RouteInfoManager {
                 }
 
                 if (removeBrokerName) {
+                    // 从broker集群映射表中删除该broker的信息
                     Set<String> nameSet = this.clusterAddrTable.get(clusterName);
                     if (nameSet != null) {
                         boolean removed = nameSet.remove(brokerName);
@@ -362,6 +366,7 @@ public class RouteInfoManager {
                             );
                         }
                     }
+                    // 从topic和其所属broker上信息的映射表汇中删除该broker
                     this.removeTopicByBrokerName(brokerName);
                 }
             } finally {
