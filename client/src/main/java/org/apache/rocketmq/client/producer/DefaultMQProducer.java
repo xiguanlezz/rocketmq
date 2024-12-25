@@ -77,6 +77,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Just for testing or demo program
      */
+    // broker写死的topic：TBW102.当发送消息发现指定的topic在namesrv不存在路由信息时，使用TBW102作为模版存储消息
     private String createTopicKey = TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC;
 
     /**
