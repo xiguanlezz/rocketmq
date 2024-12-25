@@ -30,6 +30,8 @@ public class ValidatorsTest {
 
     @Test
     public void testCheckTopic_Success() throws MQClientException {
+        Validators.checkTopic("|||-|||");
+        Validators.checkTopic("|hello|");
         Validators.checkTopic("Hello");
         Validators.checkTopic("%RETRY%Hello");
         Validators.checkTopic("_%RETRY%Hello");

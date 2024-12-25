@@ -89,6 +89,7 @@ public class MQClientInstance {
     private final InternalLogger log = ClientLogger.getLog();
     // 客户端配置
     private final ClientConfig clientConfig;
+    // 索引值，一般是0，因为客户端实例一般都是一个进程中只有一个，PID是同一个
     private final int instanceIndex;
     // 客户端id，IP地址@PID
     private final String clientId;
@@ -305,7 +306,7 @@ public class MQClientInstance {
         }
 
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
-
+            // 每隔30秒执行一次
             @Override
             public void run() {
                 try {
