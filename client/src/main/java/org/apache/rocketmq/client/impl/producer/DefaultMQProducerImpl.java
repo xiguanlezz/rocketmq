@@ -1485,6 +1485,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 @Override
                 public void onSuccess(SendResult sendResult) {
                     requestResponseFuture.setSendRequestOk(true);
+                    requestResponseFuture.acquireCountdownLatch();
                 }
 
                 @Override
@@ -1516,6 +1517,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             @Override
             public void onSuccess(SendResult sendResult) {
                 requestResponseFuture.setSendRequestOk(true);
+                requestResponseFuture.acquireCountdownLatch();
             }
 
             @Override
@@ -1542,6 +1544,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 @Override
                 public void onSuccess(SendResult sendResult) {
                     requestResponseFuture.setSendRequestOk(true);
+                    requestResponseFuture.acquireCountdownLatch();
                 }
 
                 @Override
@@ -1573,6 +1576,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             @Override
             public void onSuccess(SendResult sendResult) {
                 requestResponseFuture.setSendRequestOk(true);
+                requestResponseFuture.acquireCountdownLatch();
             }
 
             @Override
@@ -1599,6 +1603,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 @Override
                 public void onSuccess(SendResult sendResult) {
                     requestResponseFuture.setSendRequestOk(true);
+                    requestResponseFuture.acquireCountdownLatch();
                 }
 
                 @Override
@@ -1642,6 +1647,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             @Override
             public void onSuccess(SendResult sendResult) {
                 requestResponseFuture.setSendRequestOk(true);
+                requestResponseFuture.acquireCountdownLatch();
             }
 
             @Override

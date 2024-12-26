@@ -63,6 +63,10 @@ public class RequestResponseFuture {
         this.countDownLatch.countDown();
     }
 
+    public void acquireCountdownLatch() {
+        this.countDownLatch.countDown();
+    }
+
     public String getCorrelationId() {
         return correlationId;
     }
