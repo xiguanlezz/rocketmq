@@ -29,6 +29,7 @@ import org.apache.rocketmq.logging.InternalLogger;
 
 public class RequestFutureTable {
     private static InternalLogger log = ClientLogger.getLog();
+    // key为CORRELATION_ID
     private static ConcurrentHashMap<String, RequestResponseFuture> requestFutureTable = new ConcurrentHashMap<String, RequestResponseFuture>();
 
     public static ConcurrentHashMap<String, RequestResponseFuture> getRequestFutureTable() {

@@ -839,7 +839,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
                 int sysFlag = 0;
                 boolean msgBodyCompressed = false;
-                // 消息压缩逻辑
+                // 非批量消息且消息body大小超过4K才启用压缩
                 if (this.tryToCompressMessage(msg)) {
                     // 设置标记位，表示此条消息被压缩过了
                     sysFlag |= MessageSysFlag.COMPRESSED_FLAG;
@@ -948,6 +948,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                         if (timeout < costTimeAsync) {
                             throw new RemotingTooMuchRequestException("sendKernelImpl call timeout");
                         }
+                        // 交给API对象完成消息发送
                         sendResult = this.mQClientFactory.getMQClientAPIImpl().sendMessage(
                             brokerAddr,
                             mq.getBrokerName(),
@@ -1476,6 +1477,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
         try {
             final RequestResponseFuture requestResponseFuture = new RequestResponseFuture(correlationId, timeout, null);
+            // 将关联id作为key，requestFuture作为value放入映射表中
             RequestFutureTable.getRequestFutureTable().put(correlationId, requestResponseFuture);
 
             long cost = System.currentTimeMillis() - beginTimestamp;
@@ -1493,6 +1495,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 }
             }, timeout - cost);
 
+            // 调用countdownLatch的await方法
             return waitResponse(msg, timeout, requestResponseFuture, cost);
         } finally {
             RequestFutureTable.getRequestFutureTable().remove(correlationId);
