@@ -214,7 +214,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 // 获取当前RocketMQ的客户端实例
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQProducer, rpcHook);
 
-                // 将生产者注册到RocketMQ的客户端实例内（观察者模式）
+                // 将生产者注册到RocketMQ的客户端实例内（观察者模式），回查事务消息状态会用到
                 boolean registerOK = mQClientFactory.registerProducer(this.defaultMQProducer.getProducerGroup(), this);
                 if (!registerOK) {
                     this.serviceState = ServiceState.CREATE_JUST;
@@ -292,9 +292,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             case CREATE_JUST:
                 break;
             case RUNNING:
+                // 将当前对象从客户端实例上注销
                 this.mQClientFactory.unregisterProducer(this.defaultMQProducer.getProducerGroup());
                 this.defaultAsyncSenderExecutor.shutdown();
                 if (shutdownFactory) {
+                    // 关闭客户端实例对象
                     this.mQClientFactory.shutdown();
                 }
                 this.timer.cancel();

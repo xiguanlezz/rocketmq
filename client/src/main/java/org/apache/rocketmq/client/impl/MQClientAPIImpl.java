@@ -167,6 +167,7 @@ import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 public class MQClientAPIImpl {
 
     private final static InternalLogger log = ClientLogger.getLog();
+    // 是否精简消息字段名
     private static boolean sendSmartMsg =
         Boolean.parseBoolean(System.getProperty("org.apache.rocketmq.client.sendSmartMsg", "true"));
 
@@ -177,8 +178,11 @@ public class MQClientAPIImpl {
     // 客户端网络层对象，管理客户端与服务器之间的NioSocketChannel对象，通过它提供的invoke系列方法，客户端与服务端两者之间可以互相进行远程调用
     private final RemotingClient remotingClient;
     private final TopAddressing topAddressing;
+    // 客户端请求处理器
     private final ClientRemotingProcessor clientRemotingProcessor;
+    // 连接的namesrv地址（可能会有多个）
     private String nameSrvAddr = null;
+    // 客户端网络层配置
     private ClientConfig clientConfig;
 
     public MQClientAPIImpl(final NettyClientConfig nettyClientConfig,

@@ -299,6 +299,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     @Override
     public void shutdown() {
+        // 关闭生产者实现对象
         this.defaultMQProducerImpl.shutdown();
         if (null != traceDispatcher) {
             traceDispatcher.shutdown();

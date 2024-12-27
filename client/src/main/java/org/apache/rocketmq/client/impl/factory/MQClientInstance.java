@@ -323,9 +323,9 @@ public class MQClientInstance {
             @Override
             public void run() {
                 try {
-                    // 清理下线的broker节点
+                    // 清理brokerAddrTable中下线的broker节点
                     MQClientInstance.this.cleanOfflineBroker();
-                    // 向在线的broker节点发送心跳数据
+                    // 向在线的broker节点发送心跳数据，更新broker物理节点版本映射表
                     MQClientInstance.this.sendHeartbeatToAllBrokerWithLock();
                 } catch (Exception e) {
                     log.error("ScheduledTask sendHeartbeatToAllBroker exception", e);
@@ -427,6 +427,7 @@ public class MQClientInstance {
 
     /**
      * Remove offline broker
+     * 其实就是以定时从namesrv拉取主题路由信息的任务更新的变量即topicRouteTable为准，更新brokerAddrTable以达到最终一致性
      */
     private void cleanOfflineBroker() {
         try {
@@ -514,7 +515,9 @@ public class MQClientInstance {
     public void sendHeartbeatToAllBrokerWithLock() {
         if (this.lockHeartbeat.tryLock()) {
             try {
+                // 更新broker物理节点版本映射表
                 this.sendHeartbeatToAllBroker();
+                // RocketMQ5.x会移除，因此不重要
                 this.uploadFilterClassSource();
             } catch (final Exception e) {
                 log.error("sendHeartbeatToAllBroker exception", e);
@@ -606,6 +609,7 @@ public class MQClientInstance {
                                 if (!this.brokerVersionTable.containsKey(brokerName)) {
                                     this.brokerVersionTable.put(brokerName, new HashMap<String, Integer>(4));
                                 }
+                                // 更新broker物理节点版本映射表
                                 this.brokerVersionTable.get(brokerName).put(addr, version);
                                 if (times % 20 == 0) {
                                     log.info("send heart beat to broker[{} {} {}] success", brokerName, id, addr);
@@ -921,7 +925,7 @@ public class MQClientInstance {
         if (null == group || null == consumer) {
             return false;
         }
-
+        // 将消费者注册到MQClientInstance对象上
         MQConsumerInner prev = this.consumerTable.putIfAbsent(group, consumer);
         if (prev != null) {
             log.warn("the consumer group[" + group + "] exist already.");
@@ -932,6 +936,7 @@ public class MQClientInstance {
     }
 
     public void unregisterConsumer(final String group) {
+        // 将消费者从MQClientInstance对象上移除
         this.consumerTable.remove(group);
         this.unregisterClientWithLock(null, group);
     }
@@ -985,7 +990,7 @@ public class MQClientInstance {
         if (null == group || null == producer) {
             return false;
         }
-
+        // 将生产者注册到MQClientInstance对象上
         MQProducerInner prev = this.producerTable.putIfAbsent(group, producer);
         if (prev != null) {
             log.warn("the producer group[{}] exist already.", group);
@@ -996,6 +1001,7 @@ public class MQClientInstance {
     }
 
     public void unregisterProducer(final String group) {
+        // 将生产者从MQClientInstance对象上移除
         this.producerTable.remove(group);
         this.unregisterClientWithLock(group, null);
     }
