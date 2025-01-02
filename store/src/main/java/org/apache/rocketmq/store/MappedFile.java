@@ -160,6 +160,7 @@ public class MappedFile extends ReferenceResource {
     public void init(final String fileName, final int fileSize,
         final TransientStorePool transientStorePool) throws IOException {
         init(fileName, fileSize);
+        // 从内存锁定的ByteBuffer列表中获取一个ByteBuffer对象
         this.writeBuffer = transientStorePool.borrowBuffer();
         this.transientStorePool = transientStorePool;
     }
@@ -238,6 +239,7 @@ public class MappedFile extends ReferenceResource {
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 更新写入位点和
             this.wrotePosition.addAndGet(result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
@@ -298,7 +300,6 @@ public class MappedFile extends ReferenceResource {
     /**
      * 刷盘方法
      * @param flushLeastPages 刷盘的最小页数。当flushLeastPages为0时强制刷盘；当flushLeastPages大于0时，需要脏页数量达到flushLeastPages才进行刷盘
-     * @return
      */
     public int flush(final int flushLeastPages) {
         if (this.isAbleToFlush(flushLeastPages)) {

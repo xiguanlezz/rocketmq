@@ -57,6 +57,7 @@ public class MappedFileQueue {
         AllocateMappedFileService allocateMappedFileService) {
         this.storePath = storePath;
         this.mappedFileSize = mappedFileSize;
+        // 创建mappedFile的服务，如果传递了allocateMappedFileService就是异步创建
         this.allocateMappedFileService = allocateMappedFileService;
     }
 
@@ -106,6 +107,10 @@ public class MappedFileQueue {
         return mfs;
     }
 
+    /**
+     * 删除偏移量在offset之后的文件
+     * @param offset 物理偏移量
+     */
     public void truncateDirtyFiles(long offset) {
         List<MappedFile> willRemoveFiles = new ArrayList<MappedFile>();
 
@@ -122,7 +127,7 @@ public class MappedFileQueue {
                 }
             }
         }
-
+        // 将willRemoveFiles从mappedFiles删除
         this.deleteExpiredFile(willRemoveFiles);
     }
 
@@ -372,11 +377,11 @@ public class MappedFileQueue {
         final int deleteFilesInterval,
         final long intervalForcibly,
         final boolean cleanImmediately) {
+        // copy
         Object[] mfs = this.copyMappedFiles(0);
-
         if (null == mfs)
             return 0;
-
+        // 正在顺序写的commitLog文件不会被删除
         int mfsLength = mfs.length - 1;
         int deleteCount = 0;
         // 被删除的文件集合
@@ -389,6 +394,7 @@ public class MappedFileQueue {
                 // 条件一成立：文件过期
                 // 条件二成立：disk占用率达到上限会走强制删除
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
+                    // 删除mappedFile
                     if (mappedFile.destroy(intervalForcibly)) {
                         files.add(mappedFile);
                         deleteCount++;
@@ -399,6 +405,7 @@ public class MappedFileQueue {
 
                         if (deleteFilesInterval > 0 && (i + 1) < mfsLength) {
                             try {
+                                // 避免短时间内IO操作过多，浪费CPU资源，sleep一下让出CPU
                                 Thread.sleep(deleteFilesInterval);
                             } catch (InterruptedException e) {
                             }
@@ -422,6 +429,7 @@ public class MappedFileQueue {
 
     /**
      * 删除../store/xxx_topic/0目录下的文件
+     * 删除方法：依次遍历顺序写之前的文件，获取文件中的最后一个CQData，判断其中的消息物理偏移量是否小于commitLog目录下最小的物理偏移量，如果小于那就是过期的consumeQueue文件，需要被删除
      * @param offset commitLog目录下最小的物理偏移量
      * @param unitSize consumeQueue文件内每个数据单元的固定大小
      */
@@ -484,7 +492,8 @@ public class MappedFileQueue {
         MappedFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);
         if (mappedFile != null) {
             long tmpTimeStamp = mappedFile.getStoreTimestamp();
-            // 刷盘
+            // 如果mappedFile上的脏页数量达到flushLeastPages，才调用FileChannel.force方法将数据落盘
+            // offset为最新的刷盘位点，
             int offset = mappedFile.flush(flushLeastPages);
             long where = mappedFile.getFileFromOffset() + offset;
             // 为结果赋值。true表示本次刷盘无数据落盘，false表示本次刷盘有数据落盘

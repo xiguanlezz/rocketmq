@@ -233,6 +233,7 @@ public abstract class NettyRemotingAbstract {
                         };
 
                         // namesrv使用的是DefaultRequestProcessor，属于AsyncNettyRequestProcessor子类
+                        // 而broker在BrokerController.registerProcessor方法中针对不同请求，注册了多个不同的处理器
                         if (pair.getObject1() instanceof AsyncNettyRequestProcessor) {
                             AsyncNettyRequestProcessor processor = (AsyncNettyRequestProcessor)pair.getObject1();
                             processor.asyncProcessRequest(ctx, cmd, callback);

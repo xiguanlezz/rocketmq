@@ -40,9 +40,14 @@ public class IndexService {
      */
     private static final int MAX_TRY_IDX_CREATE = 3;
     private final DefaultMessageStore defaultMessageStore;
+
+    // hash桶数量上限，500W
     private final int hashSlotNum;
+    // indexData数量上限，2000W
     private final int indexNum;
+
     private final String storePath;
+    // 存储indexFile的列表
     private final ArrayList<IndexFile> indexFileList = new ArrayList<IndexFile>();
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
@@ -94,7 +99,8 @@ public class IndexService {
             if (this.indexFileList.isEmpty()) {
                 return;
             }
-
+            // 直接从indexFile文件的indexHeader部分就可以判断索引文件过期没有了
+            // 但其实这个方法只有在第一个索引文件过期的时候才会执行过期文件的清理
             long endPhyOffset = this.indexFileList.get(0).getEndPhyOffset();
             if (endPhyOffset < offset) {
                 files = this.indexFileList.toArray();
@@ -107,6 +113,7 @@ public class IndexService {
 
         if (files != null) {
             List<IndexFile> fileList = new ArrayList<IndexFile>();
+            // 排掉当前正在顺序写的indexFile
             for (int i = 0; i < (files.length - 1); i++) {
                 IndexFile f = (IndexFile) files[i];
                 if (f.getEndPhyOffset() < offset) {
@@ -115,7 +122,7 @@ public class IndexService {
                     break;
                 }
             }
-
+            // 删除过期的indexFile列表
             this.deleteExpiredFile(fileList);
         }
     }
@@ -228,10 +235,12 @@ public class IndexService {
             }
 
             if (keys != null && keys.length() > 0) {
+                // 将keys按照“ ”分隔
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {
                     String key = keyset[i];
                     if (key.length() > 0) {
+                        // 为每个key都调用indexFile.putKey，将其写入indexFile文件中
                         indexFile = putKey(indexFile, msg, buildKey(topic, key));
                         if (indexFile == null) {
                             log.error("putKey error commitlog {} uniqkey {}", req.getCommitLogOffset(), req.getUniqKey());

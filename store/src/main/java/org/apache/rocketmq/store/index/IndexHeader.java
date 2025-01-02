@@ -20,8 +20,19 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * 索引文件header部分，包含下面6个字段：
+ * 1. 第一条消息的存储时间戳
+ * 2. 最后一条消息的存储时间戳
+ * 3. 第一条消息在commitLog文件中的物理偏移量
+ * 4. 最后一条消息在commitLog文件中的物理偏移量
+ * 5. 已经使用的hash桶的数量
+ * 6. 索引文件中保存的IndexData数量 + 1（默认值为1，因为hash桶和存放IndexData之间存放了一个空的IndexData对象）
+ */
 public class IndexHeader {
     public static final int INDEX_HEADER_SIZE = 40;
+
+    // 索引文件header中各个字段的起始位置
     private static int beginTimestampIndex = 0;
     private static int endTimestampIndex = 8;
     private static int beginPhyoffsetIndex = 16;
@@ -29,12 +40,13 @@ public class IndexHeader {
     private static int hashSlotcountIndex = 32;
     private static int indexCountIndex = 36;
     private final ByteBuffer byteBuffer;
+
+    // 索引文件header中各个字段的值
     private AtomicLong beginTimestamp = new AtomicLong(0);
     private AtomicLong endTimestamp = new AtomicLong(0);
     private AtomicLong beginPhyOffset = new AtomicLong(0);
     private AtomicLong endPhyOffset = new AtomicLong(0);
     private AtomicInteger hashSlotCount = new AtomicInteger(0);
-
     private AtomicInteger indexCount = new AtomicInteger(1);
 
     public IndexHeader(final ByteBuffer byteBuffer) {

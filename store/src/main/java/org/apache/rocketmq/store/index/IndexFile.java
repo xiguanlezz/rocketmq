@@ -36,9 +36,9 @@ public class IndexFile {
     // 无效索引编号：0 特殊值
     private static int invalidIndex = 0;
 
-    // 默认值，500W
+    // hash桶数量的上限，默认值为500W
     private final int hashSlotNum;
-    // 默认值，2000W
+    // 存储条目数即indexData数量的上限，默认值为2000W
     private final int indexNum;
 
     // 索引文件使用的mf
@@ -51,7 +51,6 @@ public class IndexFile {
     private final IndexHeader indexHeader;
 
     /**
-     *
      * @param fileName
      * @param hashSlotNum
      * @param indexNum
@@ -96,9 +95,13 @@ public class IndexFile {
 
     public void flush() {
         long beginTime = System.currentTimeMillis();
+        // 引用计数加一，防止被回收
         if (this.mappedFile.hold()) {
+            // 更新indexHeader头部的字段
             this.indexHeader.updateByteBuffer();
+            // 强迫索引文件落盘
             this.mappedByteBuffer.force();
+            // 引用计数减一
             this.mappedFile.release();
             log.info("flush index file elapsed time(ms) " + (System.currentTimeMillis() - beginTime));
         }
@@ -109,18 +112,18 @@ public class IndexFile {
     }
 
     public boolean destroy(final long intervalForcibly) {
+        // 直接调用mappedFile的destroy方法
         return this.mappedFile.destroy(intervalForcibly);
     }
 
     /**
-     *
      * @param key msg：1. UNIQ_KEY；2. keys="aaa bbb ccc"会分别为aaa、bbb、ccc创建索引
      * @param phyOffset 消息物理偏移量
      * @param storeTimestamp 消息存储时间
      */
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
         if (this.indexHeader.getIndexCount() < this.indexNum) {
-            // 获取key的hash值
+            // 获取key的hash值，确保hash值大于等于0
             int keyHash = indexKeyHashMethod(key);
 
             // 取模，获取key对应的hash桶下标
@@ -135,6 +138,7 @@ public class IndexFile {
                 // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
                 // false);
                 // 读取hash桶内的原值（当发生hash冲突时才有值，其他情况slotValue时invalidIndex即0）
+                // slotValue就像是IndexData的编号
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;
@@ -155,7 +159,7 @@ public class IndexFile {
                     timeDiff = 0;
                 }
 
-                // 计算索引条目写入的开始位置：40 + 500W * 4 + 索引编号 * 20
+                // 计算索引条目即IndexData写入的开始位置：40 + 500W * 4 + 索引编号 * 20
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
@@ -168,7 +172,7 @@ public class IndexFile {
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
                 // hash桶的原值（hash冲突时会用到）
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
-                // 向当前key计算出来的hash桶内写入的索引编号
+                // 向当前key计算出来的hash桶内写入新创建的IndexData的索引编号
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
                 if (this.indexHeader.getIndexCount() <= 1) {
@@ -234,12 +238,12 @@ public class IndexFile {
     }
 
     /**
-     *
+     * 根据索引查询消息
      * @param phyOffsets 用于存放查询结果
      * @param key 查询key
      * @param maxNum 结果最大数限制
-     * @param begin
-     * @param end
+     * @param begin 消息存储的开始时间
+     * @param end 消息存储的结束时间
      * @param lock
      */
     public void selectPhyOffset(final List<Long> phyOffsets, final String key, final int maxNum,
@@ -279,7 +283,9 @@ public class IndexFile {
                                 + nextIndexToRead * indexSize;
 
                         // 读取索引数据
+                        // 读取消息key的hashCode
                         int keyHashRead = this.mappedByteBuffer.getInt(absIndexPos);
+                        // 读取消息在commitLog文件中的物理偏移量
                         long phyOffsetRead = this.mappedByteBuffer.getLong(absIndexPos + 4);
                         long timeDiff = (long) this.mappedByteBuffer.getInt(absIndexPos + 4 + 8);
                         int prevIndexRead = this.mappedByteBuffer.getInt(absIndexPos + 4 + 8 + 4);
@@ -296,10 +302,11 @@ public class IndexFile {
 
                         if (keyHash == keyHashRead && timeMatched) {
                             // 此时说明查询命中，将消息索引的消息偏移量加入到list集合中
+                            // 何为查询命中？1. 时间戳在查询范围内；2. 消息key的hashCode与读取出来的IndexData的hashCode一致
                             phyOffsets.add(phyOffsetRead);
                         }
 
-                        // 判断索引条目的前驱索引编号是否是无效的，无效的直接跳出查询逻辑
+                        // 判断索引条目即IndexData的前驱索引编号是否是无效的，无效的直接跳出查询逻辑
                         if (prevIndexRead <= invalidIndex
                             || prevIndexRead > this.indexHeader.getIndexCount()
                             || prevIndexRead == nextIndexToRead || timeRead < begin) {
