@@ -25,6 +25,8 @@ public enum ConsumeFromWhere {
     CONSUME_FROM_MIN_OFFSET,
     @Deprecated
     CONSUME_FROM_MAX_OFFSET,
+    // 从有效offset的开始进行消费
     CONSUME_FROM_FIRST_OFFSET,
+    // 从指定时间戳的消息开始消费（距离该时间戳最近的一条消息offset开始）
     CONSUME_FROM_TIMESTAMP,
 }

@@ -80,6 +80,7 @@ public class ConsumerManageProcessor extends AsyncNettyRequestProcessor implemen
             this.brokerController.getConsumerManager().getConsumerGroupInfo(
                 requestHeader.getConsumerGroup());
         if (consumerGroupInfo != null) {
+            // 正常情况下，clientId应该只有一个，因为clientId的命名规则为IP地址@PID，当客户端重启时，那broker端存储的某个消费者组的clientId才可能会有多个
             List<String> clientIds = consumerGroupInfo.getAllClientId();
             if (!clientIds.isEmpty()) {
                 GetConsumerListByGroupResponseBody body = new GetConsumerListByGroupResponseBody();

@@ -77,12 +77,14 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
         HeartbeatData heartbeatData = HeartbeatData.decode(request.getBody(), HeartbeatData.class);
         ClientChannelInfo clientChannelInfo = new ClientChannelInfo(
             ctx.channel(),
+            // 心跳包中传过来的clientId，一般是不会变的，规则：IP地址@PID
             heartbeatData.getClientID(),
             request.getLanguage(),
             request.getVersion()
         );
 
         for (ConsumerData data : heartbeatData.getConsumerDataSet()) {
+            // 找到消费者组订阅配置，如果不存在且brokerConfig上的autoCreateSubscriptionGroup为true就立刻创建并进行持久化
             SubscriptionGroupConfig subscriptionGroupConfig =
                 this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(
                     data.getGroupName());
@@ -94,12 +96,14 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
                     topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
                 }
                 String newTopic = MixAll.getRetryTopic(data.getGroupName());
+                // 初次执行该方法会创建RETRY的topic
                 this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
                     newTopic,
                     subscriptionGroupConfig.getRetryQueueNums(),
                     PermName.PERM_WRITE | PermName.PERM_READ, topicSysFlag);
             }
 
+            // 将消费者组注册到消费者组管理器对象的consumerTable中（会更新channel信息和subscribe信息）
             boolean changed = this.brokerController.getConsumerManager().registerConsumer(
                 data.getGroupName(),
                 clientChannelInfo,
@@ -119,6 +123,7 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
         }
 
         for (ProducerData data : heartbeatData.getProducerDataSet()) {
+            // 将生产者组注册到生产者组管理器对象的groupChannelTable中（会更新lastUpdateTimestamp）
             this.brokerController.getProducerManager().registerProducer(data.getGroupName(),
                 clientChannelInfo);
         }

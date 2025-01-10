@@ -95,6 +95,7 @@ public class DefaultMessageStore implements MessageStore {
 
     private final TransientStorePool transientStorePool;
 
+    // 调度消息服务（延迟消息）
     private final ScheduleMessageService scheduleMessageService;
     private final StoreStatsService storeStatsService;
     private final BrokerStatsManager brokerStatsManager;
@@ -574,6 +575,14 @@ public class DefaultMessageStore implements MessageStore {
         return commitLog;
     }
 
+    /**
+     * @param group 消费者组
+     * @param topic 主题
+     * @param queueId 队列id
+     * @param offset 客户端拉消息使用的起始位点
+     * @param maxMsgNums 一次最多拉取的消息数量，默认为32
+     * @param messageFilter 一般这里是tagCode过滤
+     */
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
         final int maxMsgNums,
         final MessageFilter messageFilter) {
@@ -590,49 +599,64 @@ public class DefaultMessageStore implements MessageStore {
         long beginTime = this.getSystemClock().now();
 
         GetMessageStatus status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
+        // 客户端下次pull时使用的位点信息
         long nextBeginOffset = offset;
         long minOffset = 0;
         long maxOffset = 0;
 
         GetMessageResult getResult = new GetMessageResult();
-
+        // 获取commitLog的最大物理偏移量（正在顺序写的mappedFile文件）
         final long maxOffsetPy = this.commitLog.getMaxOffset();
-
+        // 找到某个topic下某个queue的consumeQueue对象（如果不存在就创建）
         ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
+            // 为minOffset、maxOffset赋值，就是当前consumeQueue文件中最小和最大的offset，单位为CQData的size即20字节
             minOffset = consumeQueue.getMinOffsetInQueue();
             maxOffset = consumeQueue.getMaxOffsetInQueue();
 
             if (maxOffset == 0) {
+                // 走到这里，一定是调用findConsumeQueue时创建了consumeQueue，此时maxOffset才会为0
+                // 队列内无数据，外层“PullMessageProcessor”会进行长轮询
                 status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
                 nextBeginOffset = nextOffsetCorrection(offset, 0);
             } else if (offset < minOffset) {
                 status = GetMessageStatus.OFFSET_TOO_SMALL;
+                // 调整offset为minOffset
                 nextBeginOffset = nextOffsetCorrection(offset, minOffset);
             } else if (offset == maxOffset) {
+                // 说明客户端消费进度和该queue的消费进度持平
+                // 外层“PullMessageProcessor”会进行长轮询
                 status = GetMessageStatus.OFFSET_OVERFLOW_ONE;
                 nextBeginOffset = nextOffsetCorrection(offset, offset);
             } else if (offset > maxOffset) {
                 status = GetMessageStatus.OFFSET_OVERFLOW_BADLY;
+                // 根据minOffset是否为0，调整offset
                 if (0 == minOffset) {
                     nextBeginOffset = nextOffsetCorrection(offset, minOffset);
                 } else {
                     nextBeginOffset = nextOffsetCorrection(offset, maxOffset);
                 }
             } else {
+                // 走到这里，说明此时客户端传过来的offset是满足consumeQueue有效数据范围的
+                // bufferConsumeQueue的数据范围：
+                // 1. 如果offset命中的文件不是正在顺序写的文件，此时数据范围为：【offset表示的这条消息，文件尾】
+                // 2. 如果offset命中的文件是正在顺序写的文件，此时数据范围为：【offset表示的这条消息，文件名 + wrotePosition】
                 SelectMappedBufferResult bufferConsumeQueue = consumeQueue.getIndexBuffer(offset);
+                // 当bufferConsumeQueue为null时，情况非常极端，恰好赶上consumeQueue删除了过期文件
                 if (bufferConsumeQueue != null) {
                     try {
                         status = GetMessageStatus.NO_MATCHED_MESSAGE;
-
                         long nextPhyFileStartOffset = Long.MIN_VALUE;
+                        // 本次拉取的消息中最后一条消息的物理偏移量
                         long maxPhyOffsetPulling = 0;
 
                         int i = 0;
+                        // 16000
                         final int maxFilterMessageCount = Math.max(16000, maxMsgNums * ConsumeQueue.CQ_STORE_UNIT_SIZE);
                         final boolean diskFallRecorded = this.messageStoreConfig.isDiskFallRecorded();
                         ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                         for (; i < bufferConsumeQueue.getSize() && i < maxFilterMessageCount; i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
+                            // 每次从bufferConsumeQueue中读取20字节的CQData数据
                             long offsetPy = bufferConsumeQueue.getByteBuffer().getLong();
                             int sizePy = bufferConsumeQueue.getByteBuffer().getInt();
                             long tagsCode = bufferConsumeQueue.getByteBuffer().getLong();
@@ -640,12 +664,20 @@ public class DefaultMessageStore implements MessageStore {
                             maxPhyOffsetPulling = offsetPy;
 
                             if (nextPhyFileStartOffset != Long.MIN_VALUE) {
+                                // 走到这，说明之前commitLog删除过期文件的任务刚刚好执行过，nextPhyFileStartOffset会赋值为下个文件的文件名
+                                // 如果offsetPy < nextPhyFileStartOffset直接读取下一条消息即可，当前读取的消息已经被删除了。。。
                                 if (offsetPy < nextPhyFileStartOffset)
                                     continue;
                             }
 
+                            // true表示数据是“冷数据”，false表示数据是“热数据”
+                            // 参数一：本次循环处理的CQData消息的物理偏移量
+                            // 参数二：当前broker节点commitLog内最大的物理偏移量
+                            // 如果参数二减去参数一超过了机器物理内存的40%，说明有数据通过swap缓冲区被扇出到磁盘上了，isInDisk就为true了
+                            // 如果参数二减去参数一小于机器物理内存的40%，说明这部分数据都在内存中，isInDisk就为false了
                             boolean isInDisk = checkInDiskByCommitOffset(offsetPy, maxOffsetPy);
 
+                            // 控制是否跳出循环
                             if (this.isTheBatchFull(sizePy, maxMsgNums, getResult.getBufferTotalSize(), getResult.getMessageCount(),
                                 isInDisk)) {
                                 break;
@@ -664,6 +696,7 @@ public class DefaultMessageStore implements MessageStore {
                                 }
                             }
 
+                            // 服务端按照消息tagCode进行过滤
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByConsumeQueue(isTagsCodeLegal ? tagsCode : null, extRet ? cqExtUnit : null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -673,12 +706,14 @@ public class DefaultMessageStore implements MessageStore {
                                 continue;
                             }
 
+                            // 根据CQData.offsetPy和sizePy到commitLog文件中查询消息
                             SelectMappedBufferResult selectResult = this.commitLog.getMessage(offsetPy, sizePy);
                             if (null == selectResult) {
+                                // 啥时候selectResult会为null？查询之前commitLog删除过期文件的任务刚刚好执行过，将包含offsetPy的数据文件给删除掉了
                                 if (getResult.getBufferTotalSize() == 0) {
                                     status = GetMessageStatus.MESSAGE_WAS_REMOVING;
                                 }
-
+                                // 获取包含该“offsetPy”数据文件的下一个数据文件的文件名（long）
                                 nextPhyFileStartOffset = this.commitLog.rollNextFile(offsetPy);
                                 continue;
                             }
@@ -694,8 +729,11 @@ public class DefaultMessageStore implements MessageStore {
                             }
 
                             this.storeStatsService.getGetMessageTransferedMsgCount().incrementAndGet();
+                            // 将在本次循环中查询出来msg的加入到getResult对象中
                             getResult.addMessage(selectResult);
+                            // 查询状态设置为“FOUND”
                             status = GetMessageStatus.FOUND;
+                            // 重置nextPhyFileStartOffset，避免走上面跳过过期CQData数据的逻辑
                             nextPhyFileStartOffset = Long.MIN_VALUE;
                         }
 
@@ -704,14 +742,17 @@ public class DefaultMessageStore implements MessageStore {
                             brokerStatsManager.recordDiskFallBehindSize(group, topic, queueId, fallBehind);
                         }
 
+                        // nextBeginOffset为客户端下一次pull时使用的位点信息，此时已经读取了总size为i的CQData数据
                         nextBeginOffset = offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
-
+                        // diff = commitLog最大物理偏移量 - 本次拉消息最后一条消息的物理偏移量
                         long diff = maxOffsetPy - maxPhyOffsetPulling;
                         long memory = (long) (StoreUtil.TOTAL_PHYSICAL_MEMORY_SIZE
                             * (this.messageStoreConfig.getAccessMessageInMemoryMaxRatio() / 100.0));
+                        // 如果diff > 40%机器物理内存，说明此时的数据是“冷数据”，服务器会推荐客户端从slave节点读取（因为本次查询是冷数据，从磁盘读数据算是慢查询，如果从master节点读取消息会有较大压力）
                         getResult.setSuggestPullingFromSlave(diff > memory);
                     } finally {
-
+                        // 释放consumeQueue查询时的对象
+                        // 注意中：selectResult对象的释放其实是在PullMessageProcessor中
                         bufferConsumeQueue.release();
                     }
                 } else {
@@ -1277,14 +1318,17 @@ public class DefaultMessageStore implements MessageStore {
     private boolean isTheBatchFull(int sizePy, int maxMsgNums, int bufferTotal, int messageTotal, boolean isInDisk) {
 
         if (0 == bufferTotal || 0 == messageTotal) {
+            // 说明本次pull消息未拉取到任何消息，返回false
             return false;
         }
 
         if (maxMsgNums <= messageTotal) {
+            // 说明结果对象中存放的消息数量已经达到了最大限制，需要跳出循环了
             return true;
         }
 
         if (isInDisk) {
+            // 冷数据，一次最多pull 64KB的消息且最多pull 8条消息
             if ((bufferTotal + sizePy) > this.messageStoreConfig.getMaxTransferBytesOnMessageInDisk()) {
                 return true;
             }
@@ -1293,6 +1337,7 @@ public class DefaultMessageStore implements MessageStore {
                 return true;
             }
         } else {
+            // 热数据，一次最多pull 256KB的消息且最多pull 32条消息
             if ((bufferTotal + sizePy) > this.messageStoreConfig.getMaxTransferBytesOnMessageInMemory()) {
                 return true;
             }

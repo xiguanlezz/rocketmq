@@ -50,4 +50,14 @@ public class PermName {
     public static boolean isInherited(final int perm) {
         return (perm & PERM_INHERIT) == PERM_INHERIT;
     }
+
+    public static void main(String[] args) {
+        // 设置具有读写权限的标记位
+        int i = PERM_WRITE | PERM_READ;
+        System.out.println(Integer.toBinaryString(i));
+        // 直接通过 (flag & READ) == READ是否为true来判断是否具有读权限
+        System.out.println((i & PERM_INHERIT) == PERM_INHERIT);
+        System.out.println((i & PERM_WRITE) == PERM_WRITE);
+        System.out.println((i & PERM_READ) == PERM_READ);
+    }
 }

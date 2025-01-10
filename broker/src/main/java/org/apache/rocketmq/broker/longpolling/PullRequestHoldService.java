@@ -51,7 +51,7 @@ public class PullRequestHoldService extends ServiceThread {
                 mpr = prev;
             }
         }
-
+        // 将pullRequest加入到“该主题-queueId”归属的ManyPullRequest对象内部的list内
         mpr.addPullRequest(pullRequest);
     }
 
@@ -69,8 +69,10 @@ public class PullRequestHoldService extends ServiceThread {
         while (!this.isStopped()) {
             try {
                 if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
+                    // 服务器开启长轮询开关，每次循环休眠5秒
                     this.waitForRunning(5 * 1000);
                 } else {
+                    // 服务器未开启长轮询开关，每次循环休眠1秒
                     this.waitForRunning(this.brokerController.getBrokerConfig().getShortPollingTimeMills());
                 }
 
@@ -99,8 +101,10 @@ public class PullRequestHoldService extends ServiceThread {
             if (2 == kArray.length) {
                 String topic = kArray[0];
                 int queueId = Integer.parseInt(kArray[1]);
+                // 查询该consumeQueue的最大offset
                 final long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                 try {
+                    // 通知消息到达的逻辑
                     this.notifyMessageArriving(topic, queueId, offset);
                 } catch (Throwable e) {
                     log.error("check hold request failed. topic={}, queueId={}", topic, queueId, e);
@@ -113,22 +117,31 @@ public class PullRequestHoldService extends ServiceThread {
         notifyMessageArriving(topic, queueId, maxOffset, null, 0, null, null);
     }
 
+    /**
+     * 该方法有两个调用点：
+     * 1. pullRequestHoldService.run()
+     * 2. ReputMessageService异步构建consumeQueue和indexFile的服务
+     */
     public void notifyMessageArriving(final String topic, final int queueId, final long maxOffset, final Long tagsCode,
         long msgStoreTime, byte[] filterBitMap, Map<String, String> properties) {
+        // 构建key，规则：topic@queueId
         String key = this.buildKey(topic, queueId);
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (mpr != null) {
             List<PullRequest> requestList = mpr.cloneListAndClear();
             if (requestList != null) {
+                // 重放列表。当某个pullRequest既不超时且对应queue的maxOffset <= pullRequest.offset的话，会将pullRequest再次放入replayList中
                 List<PullRequest> replayList = new ArrayList<PullRequest>();
 
                 for (PullRequest request : requestList) {
                     long newestOffset = maxOffset;
                     if (newestOffset <= request.getPullFromThisOffset()) {
+                        // 再次获取该consumeQueue的最大偏移量
                         newestOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                     }
 
                     if (newestOffset > request.getPullFromThisOffset()) {
+                        // 说明该request关注的queue内有本次pull查询的数据了，长轮询该结束了
                         boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode,
                             new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
                         // match by bit map, need eval again when properties is not null.
@@ -138,6 +151,7 @@ public class PullRequestHoldService extends ServiceThread {
 
                         if (match) {
                             try {
+                                // 将满足条件的pullRequest再次封装出requestTask，并提交到线程池内执行PullMessageProcessor.processRequest(...)三个参数的方法，并且不允许再次长轮询
                                 this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
                                     request.getRequestCommand());
                             } catch (Throwable e) {
@@ -147,6 +161,7 @@ public class PullRequestHoldService extends ServiceThread {
                         }
                     }
 
+                    // 判断该pullRequest请求是否超时，如果超时，也是再次封装出requestTask，并提交到线程池内执行PullMessageProcessor.processRequest(...)三个参数的方法，并且不允许再次长轮询
                     if (System.currentTimeMillis() >= (request.getSuspendTimestamp() + request.getTimeoutMillis())) {
                         try {
                             this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
@@ -161,6 +176,7 @@ public class PullRequestHoldService extends ServiceThread {
                 }
 
                 if (!replayList.isEmpty()) {
+                    // 此时说明本地长轮询还未获取到数据，将replayList加入到ManyPullRequest的list中
                     mpr.addPullRequest(replayList);
                 }
             }

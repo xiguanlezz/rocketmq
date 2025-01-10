@@ -52,6 +52,7 @@ public class ScheduleMessageService extends ConfigManager {
     private static final long DELAY_FOR_A_WHILE = 100L;
     private static final long DELAY_FOR_A_PERIOD = 10000L;
 
+    // key为延迟级别，value为延迟时间
     private final ConcurrentMap<Integer /* level */, Long/* delay timeMillis */> delayLevelTable =
         new ConcurrentHashMap<Integer, Long>(32);
 

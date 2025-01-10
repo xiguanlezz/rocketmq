@@ -37,6 +37,7 @@ public class ConsumerOffsetManager extends ConfigManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final String TOPIC_GROUP_SEPARATOR = "@";
 
+    // value为“key为queueId，value为消费进度的map”
     private ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> offsetTable =
         new ConcurrentHashMap<String, ConcurrentMap<Integer, Long>>(512);
 
@@ -183,6 +184,12 @@ public class ConsumerOffsetManager extends ConfigManager {
         this.offsetTable = offsetTable;
     }
 
+    /**
+     * TODO(xiguanlezz)：什么场景？？？
+     * @param topic
+     * @param filterGroups
+     * @return
+     */
     public Map<Integer, Long> queryMinOffsetInAllGroup(final String topic, final String filterGroups) {
 
         Map<Integer, Long> queueMinOffset = new HashMap<Integer, Long>();

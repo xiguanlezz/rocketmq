@@ -111,26 +111,62 @@ public class BrokerController {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final InternalLogger LOG_PROTECTION = InternalLoggerFactory.getLogger(LoggerName.PROTECTION_LOGGER_NAME);
     private static final InternalLogger LOG_WATER_MARK = InternalLoggerFactory.getLogger(LoggerName.WATER_MARK_LOGGER_NAME);
+
+    // broker侧的配置类
     private final BrokerConfig brokerConfig;
     private final NettyServerConfig nettyServerConfig;
     private final NettyClientConfig nettyClientConfig;
+
+    // broker端的消息存储对象
+    private MessageStore messageStore;
     private final MessageStoreConfig messageStoreConfig;
+
+    // 主题路由配置信息管理器（并发map管理，其中key为topic，value分配给该topic的队列数）
+    private TopicConfigManager topicConfigManager;
+
+    // 消费者消费进度管理器（用于持久化指定topic下某个消费者组的offset）
     private final ConsumerOffsetManager consumerOffsetManager;
-    private final ConsumerManager consumerManager;
-    private final ConsumerFilterManager consumerFilterManager;
-    private final ProducerManager producerManager;
-    private final ClientHousekeepingService clientHousekeepingService;
-    private final PullMessageProcessor pullMessageProcessor;
-    private final PullRequestHoldService pullRequestHoldService;
-    private final MessageArrivingListener messageArrivingListener;
-    private final Broker2Client broker2Client;
+
+    // 消费者组订阅数据管理器
     private final SubscriptionGroupManager subscriptionGroupManager;
+
+    // 拉消息请求的处理器，需要借助PullRequestHoldService实现消费者的长轮询
+    private final PullMessageProcessor pullMessageProcessor;
+    // 客户端长轮询处理器
+    private final PullRequestHoldService pullRequestHoldService;
+    // 长轮询通知器（在将commitLog文件同步到consumeQueue和indexFile时，一旦成功同步完一条commitLog记录，调用该通知器告知客户端长轮询可以结束了）
+    private final MessageArrivingListener messageArrivingListener;
+
+    // 消费者组管理器
+    private final ConsumerManager consumerManager;
+    // 生产者组管理器
+    private final ProducerManager producerManager;
+    private final ConsumerFilterManager consumerFilterManager;
+
+    // 监听channel状态，channel状态发生改变时，close idle会向事件队列添加事件，事件最终会由该service处理
+    private final ClientHousekeepingService clientHousekeepingService;
+
     private final ConsumerIdsChangeListener consumerIdsChangeListener;
     private final RebalanceLockManager rebalanceLockManager = new RebalanceLockManager();
-    private final BrokerOuterAPI brokerOuterAPI;
+
+    // 定时任务执行的线程池
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "BrokerControllerScheduledThread"));
     private final SlaveSynchronize slaveSynchronize;
+
+    private final FilterServerManager filterServerManager;
+    private final BrokerStatsManager brokerStatsManager;
+    private final List<SendMessageHook> sendMessageHookList = new ArrayList<SendMessageHook>();
+    private final List<ConsumeMessageHook> consumeMessageHookList = new ArrayList<ConsumeMessageHook>();
+
+    // 服务端网络层对象
+    private RemotingServer remotingServer;
+    // 服务端网络层对象（VIP）
+    private RemotingServer fastRemotingServer;
+    // 网络层对象的API封装
+    private final Broker2Client broker2Client;
+    private final BrokerOuterAPI brokerOuterAPI;
+
     private final BlockingQueue<Runnable> sendThreadPoolQueue;
     private final BlockingQueue<Runnable> pullThreadPoolQueue;
     private final BlockingQueue<Runnable> replyThreadPoolQueue;
@@ -139,14 +175,6 @@ public class BrokerController {
     private final BlockingQueue<Runnable> heartbeatThreadPoolQueue;
     private final BlockingQueue<Runnable> consumerManagerThreadPoolQueue;
     private final BlockingQueue<Runnable> endTransactionThreadPoolQueue;
-    private final FilterServerManager filterServerManager;
-    private final BrokerStatsManager brokerStatsManager;
-    private final List<SendMessageHook> sendMessageHookList = new ArrayList<SendMessageHook>();
-    private final List<ConsumeMessageHook> consumeMessageHookList = new ArrayList<ConsumeMessageHook>();
-    private MessageStore messageStore;
-    private RemotingServer remotingServer;
-    private RemotingServer fastRemotingServer;
-    private TopicConfigManager topicConfigManager;
     private ExecutorService sendMessageExecutor;
     private ExecutorService pullMessageExecutor;
     private ExecutorService replyMessageExecutor;
@@ -156,6 +184,7 @@ public class BrokerController {
     private ExecutorService heartbeatExecutor;
     private ExecutorService consumerManageExecutor;
     private ExecutorService endTransactionExecutor;
+
     private boolean updateMasterHAServerAddrPeriodically = false;
     private BrokerStats brokerStats;
     private InetSocketAddress storeHost;
@@ -232,10 +261,13 @@ public class BrokerController {
     }
 
     public boolean initialize() throws CloneNotSupportedException {
+        // 从topics.json文件中读取主题路由配置信息
         boolean result = this.topicConfigManager.load();
-
+        // 从consumerOffset.json文件中读取所有消费者消费topic的消费进度
         result = result && this.consumerOffsetManager.load();
+        // 从subscriptionGroup.json文件中读取消费者订阅数据
         result = result && this.subscriptionGroupManager.load();
+        // 从consumerFilter.json文件中读取消费者过滤数据
         result = result && this.consumerFilterManager.load();
 
         if (result) {

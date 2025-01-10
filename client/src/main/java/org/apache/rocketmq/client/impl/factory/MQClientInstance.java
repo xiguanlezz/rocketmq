@@ -351,7 +351,7 @@ public class MQClientInstance {
             @Override
             public void run() {
                 try {
-                    // 动态消费者线程池
+                    // 动态调整消费者线程池
                     MQClientInstance.this.adjustThreadPool();
                 } catch (Exception e) {
                     log.error("ScheduledTask adjustThreadPool exception", e);
@@ -427,7 +427,7 @@ public class MQClientInstance {
 
     /**
      * Remove offline broker
-     * 其实就是以定时从namesrv拉取主题路由信息的任务更新的变量即topicRouteTable为准，更新brokerAddrTable以达到最终一致性
+     * 其实就是以定时从namesrv拉取主题路由信息的任务更新的变量即topicRouteTable为准，更新brokerAddrTable以达到最终一致性（主要是删除已经下线的broker节点数据）
      */
     private void cleanOfflineBroker() {
         try {

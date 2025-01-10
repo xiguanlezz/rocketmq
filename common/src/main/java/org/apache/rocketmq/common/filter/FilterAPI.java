@@ -45,6 +45,7 @@ public class FilterAPI {
         if (null == subString || subString.equals(SubscriptionData.SUB_ALL) || subString.length() == 0) {
             subscriptionData.setSubString(SubscriptionData.SUB_ALL);
         } else {
+            // 如果subString不为空且不为“*”，那就将其按照“||”分隔
             String[] tags = subString.split("\\|\\|");
             if (tags.length > 0) {
                 for (String tag : tags) {

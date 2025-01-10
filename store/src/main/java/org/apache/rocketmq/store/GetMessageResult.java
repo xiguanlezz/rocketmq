@@ -22,19 +22,24 @@ import java.util.List;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 public class GetMessageResult {
-
+    // 查询消息时，最底层都是mappedFile支持的查询，它查询时返回给外层一个SelectMappedBufferResult
+    // mappedFile每次查询引用计数都会加一，通过SelectMappedBufferResult持有mappedFile，完成资源释放的句柄
     private final List<SelectMappedBufferResult> messageMapedList =
         new ArrayList<SelectMappedBufferResult>(100);
 
+    // 该List内存储消息，每条消息都被转化成ByteBuffer表示
     private final List<ByteBuffer> messageBufferList = new ArrayList<ByteBuffer>(100);
 
     private GetMessageStatus status;
+    // 客户端下次再向该queue拉消息时，使用的offset
     private long nextBeginOffset;
+    // 当前queue的最小offset
     private long minOffset;
+    // 当前queue的最大offset
     private long maxOffset;
-
+    // 消息总byte大小
     private int bufferTotalSize = 0;
-
+    // true表示：服务器建议客户端下次从该queue拉消息时使用从节点
     private boolean suggestPullingFromSlave = false;
 
     private int msgCount4Commercial = 0;

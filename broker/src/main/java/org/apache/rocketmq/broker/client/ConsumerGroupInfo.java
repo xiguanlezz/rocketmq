@@ -35,8 +35,10 @@ import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
 public class ConsumerGroupInfo {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final String groupName;
+
     private final ConcurrentMap<String/* Topic */, SubscriptionData> subscriptionTable =
         new ConcurrentHashMap<String, SubscriptionData>();
+    // broker侧与消费者建立的channel映射关系
     private final ConcurrentMap<Channel, ClientChannelInfo> channelInfoTable =
         new ConcurrentHashMap<Channel, ClientChannelInfo>(16);
     private volatile ConsumeType consumeType;
@@ -149,6 +151,7 @@ public class ConsumerGroupInfo {
     public boolean updateSubscription(final Set<SubscriptionData> subList) {
         boolean updated = false;
 
+        // 处理subscriptionTable中新增的订阅topic数据
         for (SubscriptionData sub : subList) {
             SubscriptionData old = this.subscriptionTable.get(sub.getTopic());
             if (old == null) {
@@ -172,6 +175,7 @@ public class ConsumerGroupInfo {
             }
         }
 
+        // 处理subscriptionTable中删除的订阅topic数据
         Iterator<Entry<String, SubscriptionData>> it = this.subscriptionTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<String, SubscriptionData> next = it.next();

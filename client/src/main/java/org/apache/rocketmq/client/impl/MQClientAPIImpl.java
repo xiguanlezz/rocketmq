@@ -164,6 +164,9 @@ import org.apache.rocketmq.remoting.protocol.LanguageCode;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 
+/**
+ * 主要职责：创建网络层传输对象
+ */
 public class MQClientAPIImpl {
 
     private final static InternalLogger log = ClientLogger.getLog();
@@ -745,14 +748,19 @@ public class MQClientAPIImpl {
         final long timeoutMillis,
         final PullCallback pullCallback
     ) throws RemotingException, InterruptedException {
+        // invokeAsync内部会为本次请求创建一个ResponseFuture对象，放入到remotingClient的responseTable中，key是request.opaque
+        // ResponseFuture对象：{1. opaque；2. invokeCallback；3. response}
+        // 当服务器端响应客户端时，会根据response.opaque找到当前的future对象，将结果设置到future.response字段，在接下来，会检查response.invokeCallback是否有值，如果有值，需要回调处理
         this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
             @Override
             public void operationComplete(ResponseFuture responseFuture) {
                 RemotingCommand response = responseFuture.getResponseCommand();
                 if (response != null) {
                     try {
+                        // 从response中提取出拉消息结果对象
                         PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response, addr);
                         assert pullResult != null;
+                        // 将pullResult交给“拉消息结果处理回调对象”
                         pullCallback.onSuccess(pullResult);
                     } catch (Exception e) {
                         pullCallback.onException(e);
@@ -806,6 +814,14 @@ public class MQClientAPIImpl {
         PullMessageResponseHeader responseHeader =
             (PullMessageResponseHeader) response.decodeCommandCustomHeader(PullMessageResponseHeader.class);
 
+        // 创建pullResultExt对象
+        // 参数一：pullStatus状态
+        // 参数二：nextBeginOffset
+        // 参数三：minOffset
+        // 参数四：maxOffset
+        // 参数五：msgFoundList，这里为null
+        // 参数六：suggestWhichBrokerId，服务器推荐下次该mq拉消息时使用的主机id
+        // 参数七：messageBinary，消息列表二进制表示
         return new PullResultExt(pullStatus, responseHeader.getNextBeginOffset(), responseHeader.getMinOffset(),
             responseHeader.getMaxOffset(), null, responseHeader.getSuggestWhichBrokerId(), response.getBody());
     }

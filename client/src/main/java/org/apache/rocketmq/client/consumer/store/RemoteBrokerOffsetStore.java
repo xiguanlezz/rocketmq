@@ -88,8 +88,10 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
                 }
                 case READ_FROM_STORE: {
                     try {
+                        // 从broker上查询当前queue的消费进度
                         long brokerOffset = this.fetchConsumeOffsetFromBroker(mq);
                         AtomicLong offset = new AtomicLong(brokerOffset);
+                        // 将消费进度更新到本地
                         this.updateOffset(mq, offset.get(), false);
                         return brokerOffset;
                     }
@@ -124,6 +126,7 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
             if (offset != null) {
                 if (mqs.contains(mq)) {
                     try {
+                        // 将本地的消费进度持久化到broker（RPC请求）
                         this.updateConsumeOffsetToBroker(mq, offset.get());
                         log.info("[persistAll] Group: {} ClientId: {} updateConsumeOffsetToBroker {} {}",
                             this.groupName,

@@ -120,6 +120,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
     private final ConcurrentMap<MessageQueue, PullTaskImpl> taskTable =
         new ConcurrentHashMap<MessageQueue, PullTaskImpl>();
 
+    // 这玩意儿应该是queue迁移相关的对象
     private AssignedMessageQueue assignedMessageQueue = new AssignedMessageQueue();
 
     private final BlockingQueue<ConsumeRequest> consumeRequestCache = new LinkedBlockingQueue<ConsumeRequest>();
@@ -185,10 +186,12 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
             if (next.getKey().getTopic().equals(topic)) {
                 if (!mqNewSet.contains(next.getKey())) {
                     next.getValue().setCancelled(true);
+                    // 删除taskTable中过期的PullTaskImpl对象
                     it.remove();
                 }
             }
         }
+        // 新建taskTable中不存在的PullTaskImpl对象
         startPullTask(mqNewSet);
     }
 
@@ -505,9 +508,9 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                 maybeAutoCommit();
             }
             long endTime = System.currentTimeMillis() + timeout;
-
+            // PullTaskImpl对象的run方法中会先从broker拉取到消息后，将消息封装为消费请求，塞入阻塞队列
+            // 这里从那个阻塞对类获取消费请求
             ConsumeRequest consumeRequest = consumeRequestCache.poll(endTime - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
-
             if (endTime - System.currentTimeMillis() > 0) {
                 while (consumeRequest != null && consumeRequest.getProcessQueue().isDropped()) {
                     consumeRequest = consumeRequestCache.poll(endTime - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
@@ -519,6 +522,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
             if (consumeRequest != null && !consumeRequest.getProcessQueue().isDropped()) {
                 List<MessageExt> messages = consumeRequest.getMessageExts();
                 long offset = consumeRequest.getProcessQueue().removeMessage(messages);
+                // 持久化消费进度
                 assignedMessageQueue.updateConsumeOffset(consumeRequest.getMessageQueue(), offset);
                 //If namespace not null , reset Topic without namespace.
                 this.resetTopic(messages);
@@ -700,16 +704,16 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                     return;
                 }
 
+                // 流控
                 if (consumeRequestCache.size() * defaultLitePullConsumer.getPullBatchSize() > defaultLitePullConsumer.getPullThresholdForAll()) {
                     scheduledThreadPoolExecutor.schedule(this, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL, TimeUnit.MILLISECONDS);
                     if ((consumeRequestFlowControlTimes++ % 1000) == 0)
                         log.warn("The consume request count exceeds threshold {}, so do flow control, consume request count={}, flowControlTimes={}", consumeRequestCache.size(), consumeRequestFlowControlTimes);
                     return;
                 }
-
                 long cachedMessageCount = processQueue.getMsgCount().get();
                 long cachedMessageSizeInMiB = processQueue.getMsgSize().get() / (1024 * 1024);
-
+                // 流控
                 if (cachedMessageCount > defaultLitePullConsumer.getPullThresholdForQueue()) {
                     scheduledThreadPoolExecutor.schedule(this, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL, TimeUnit.MILLISECONDS);
                     if ((queueFlowControlTimes++ % 1000) == 0) {
@@ -719,7 +723,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                     }
                     return;
                 }
-
+                // 流控
                 if (cachedMessageSizeInMiB > defaultLitePullConsumer.getPullThresholdSizeForQueue()) {
                     scheduledThreadPoolExecutor.schedule(this, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL, TimeUnit.MILLISECONDS);
                     if ((queueFlowControlTimes++ % 1000) == 0) {
@@ -729,7 +733,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                     }
                     return;
                 }
-
+                // 流控
                 if (processQueue.getMaxSpan() > defaultLitePullConsumer.getConsumeMaxSpan()) {
                     scheduledThreadPoolExecutor.schedule(this, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL, TimeUnit.MILLISECONDS);
                     if ((queueMaxSpanFlowControlTimes++ % 1000) == 0) {
@@ -752,7 +756,8 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                         subscriptionData = FilterAPI.buildSubscriptionData(defaultLitePullConsumer.getConsumerGroup(),
                             topic, SubscriptionData.SUB_ALL);
                     }
-                    
+
+                    // 向broker发起拉取消息的请求
                     PullResult pullResult = pull(messageQueue, subscriptionData, offset, defaultLitePullConsumer.getPullBatchSize());
 
                     switch (pullResult.getPullStatus()) {
@@ -761,6 +766,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                             synchronized (objLock) {
                                 if (pullResult.getMsgFoundList() != null && !pullResult.getMsgFoundList().isEmpty() && assignedMessageQueue.getSeekOffset(messageQueue) == -1) {
                                     processQueue.putMessage(pullResult.getMsgFoundList());
+                                    // 提交消费请求到调度线程池
                                     submitConsumeRequest(new ConsumeRequest(pullResult.getMsgFoundList(), messageQueue, processQueue));
                                 }
                             }
@@ -771,6 +777,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                         default:
                             break;
                     }
+                    // 持久化queue的消费进度
                     updatePullOffset(messageQueue, pullResult.getNextBeginOffset());
                 } catch (Throwable e) {
                     pullDelayTimeMills = pullTimeDelayMillsWhenException;
@@ -778,6 +785,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                 }
 
                 if (!this.isCancelled()) {
+                    // 再次将PullTaskImpl对象加入调度线程池
                     scheduledThreadPoolExecutor.schedule(this, pullDelayTimeMills, TimeUnit.MILLISECONDS);
                 } else {
                     log.warn("The Pull Task is cancelled after doPullTask, {}", messageQueue);

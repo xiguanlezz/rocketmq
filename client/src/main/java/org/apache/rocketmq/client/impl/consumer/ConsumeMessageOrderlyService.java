@@ -453,6 +453,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                         final int consumeBatchSize =
                             ConsumeMessageOrderlyService.this.defaultMQPushConsumer.getConsumeMessageBatchMaxSize();
 
+                        // 从pq中获取consumeBatchSize条消息
                         List<MessageExt> msgs = this.processQueue.takeMessages(consumeBatchSize);
                         defaultMQPushConsumerImpl.resetRetryAndNamespace(msgs, defaultMQPushConsumer.getConsumerGroup());
                         if (!msgs.isEmpty()) {

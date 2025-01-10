@@ -19,9 +19,13 @@ package org.apache.rocketmq.client.impl.consumer;
 import org.apache.rocketmq.common.message.MessageQueue;
 
 public class PullRequest {
+    // 消费者组
     private String consumerGroup;
+    // 队列元数据
     private MessageQueue messageQueue;
+    // 消费者本地的处理队列（从服务器拉取下来的消息要先放到该快照队列内；当消费任务执行完毕，被消费掉的消息需要从该队列移除掉）
     private ProcessQueue processQueue;
+    // 拉消息请求时使用的offset值，告知broker要从哪里开始拉消息
     private long nextOffset;
     private boolean lockedFirst = false;
 

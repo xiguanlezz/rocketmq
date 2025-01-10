@@ -76,19 +76,22 @@ public class ProcessQueue {
      */
     public void cleanExpiredMsg(DefaultMQPushConsumer pushConsumer) {
         if (pushConsumer.getDefaultMQPushConsumerImpl().isConsumeOrderly()) {
+            // 顺序消费，不会执行清理过期消息的逻辑
             return;
         }
 
+        // 最多循环16次
         int loop = msgTreeMap.size() < 16 ? msgTreeMap.size() : 16;
         for (int i = 0; i < loop; i++) {
             MessageExt msg = null;
             try {
                 this.lockTreeMap.readLock().lockInterruptibly();
                 try {
+                    // 如果treeMap中第一条消息它的消费开始时间与系统时间差值 > 15分钟，则获取该消息
                     if (!msgTreeMap.isEmpty() && System.currentTimeMillis() - Long.parseLong(MessageAccessor.getConsumeStartTimeStamp(msgTreeMap.firstEntry().getValue())) > pushConsumer.getConsumeTimeout() * 60 * 1000) {
                         msg = msgTreeMap.firstEntry().getValue();
                     } else {
-
+                        // 因为快照队列内的消息都是有顺序的，a、b、c、d、e、f这些消息，只要a不是过期的，那么b、c、d、e、f这些消息肯定都不是过期的
                         break;
                     }
                 } finally {
@@ -99,14 +102,18 @@ public class ProcessQueue {
             }
 
             try {
-
+                // 消息回退，延迟级别设置为3
                 pushConsumer.sendMessageBack(msg, 3);
                 log.info("send expire msg back. topic={}, msgId={}, storeHost={}, queueId={}, queueOffset={}", msg.getTopic(), msg.getMsgId(), msg.getStoreHost(), msg.getQueueId(), msg.getQueueOffset());
                 try {
                     this.lockTreeMap.writeLock().lockInterruptibly();
                     try {
+                        // 有两种情况：
+                        // 1. 消息回退期间，消费任务将目标“消息”成功消费了，消费任务会执行到processConsumeResult，这一方法会将msg从msgTreeMap中移除，继而会导致msg.getQueueOffset() != msgTreeMap.firstKey()
+                        // 2. 消息回退期间，目标“消息”并没有被消费任务成功消费
                         if (!msgTreeMap.isEmpty() && msg.getQueueOffset() == msgTreeMap.firstKey()) {
                             try {
+                                // 从msgTreeMap中将消息回退并消费成功的msg移除
                                 removeMessage(Collections.singletonList(msg));
                             } catch (Exception e) {
                                 log.error("send expired msg exception", e);
@@ -182,6 +189,9 @@ public class ProcessQueue {
         return 0;
     }
 
+    /**
+     * @return long，表示pq本地的消费进度（1. -1说明pq内无数据；2. queueOffsetMax + 1，删完这批msgs之后无消息了；3. 删除完这批msgs之后pq内还有剩余待消费的消息，此时返回pq中第一条消息的offset）
+     */
     public long removeMessage(final List<MessageExt> msgs) {
         long result = -1;
         final long now = System.currentTimeMillis();

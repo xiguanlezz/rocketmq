@@ -25,9 +25,9 @@ public class ConsumeConcurrentlyContext {
     private final MessageQueue messageQueue;
     /**
      * Message consume retry strategy<br>
-     * -1,no retry,put into DLQ directly<br>
-     * 0,broker control retry frequency<br>
-     * >0,client control retry frequency
+     * -1,no retry,put into DLQ directly<br> 私信队列
+     * 0,broker control retry frequency<br> 服务端控制延迟级别
+     * >0,client control retry frequency 客户端控制延迟级别
      */
     private int delayLevelWhenNextConsume = 0;
     private int ackIndex = Integer.MAX_VALUE;
