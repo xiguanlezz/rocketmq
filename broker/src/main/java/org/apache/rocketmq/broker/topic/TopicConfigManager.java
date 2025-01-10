@@ -47,8 +47,10 @@ public class TopicConfigManager extends ConfigManager {
 
     private transient final Lock lockTopicConfigTable = new ReentrantLock();
 
+    // 主题路由数据
     private final ConcurrentMap<String, TopicConfig> topicConfigTable =
         new ConcurrentHashMap<String, TopicConfig>(1024);
+    // 主题路由数据版本号
     private final DataVersion dataVersion = new DataVersion();
     private transient BrokerController brokerController;
 
@@ -245,6 +247,7 @@ public class TopicConfigManager extends ConfigManager {
                     if (topicConfig != null)
                         return topicConfig;
 
+                    // 走到这里说明RETRY的topic还不存在，需要被创建
                     topicConfig = new TopicConfig(topic);
                     topicConfig.setReadQueueNums(clientDefaultTopicQueueNums);
                     topicConfig.setWriteQueueNums(clientDefaultTopicQueueNums);
@@ -361,9 +364,9 @@ public class TopicConfigManager extends ConfigManager {
         } else {
             log.info("create new topic [{}]", topicConfig);
         }
-
+        // 修改版本号（貌似是给主从同步使用的）
         this.dataVersion.nextVersion();
-
+        // 持久化
         this.persist();
     }
 
