@@ -90,14 +90,16 @@ public class RebalancePushImpl extends RebalanceImpl {
         if (this.defaultMQPushConsumerImpl.isConsumeOrderly()
             && MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
             try {
+                // 集群模式下的顺序消费需要先获取pq的锁
                 if (pq.getLockConsume().tryLock(1000, TimeUnit.MILLISECONDS)) {
                     try {
-                        // 如果是顺序消息，需要unlock
+                        // 此时说明“顺序消费任务”已经执行完了，可以释放broker端的队列锁（分布式锁）
                         return this.unlockDelay(mq, pq);
                     } finally {
                         pq.getLockConsume().unlock();
                     }
                 } else {
+                    // 获取pq的锁失败说明此时有消费任务正在执行
                     log.warn("[WRONG]mq is consuming, so can not unlock it, {}. maybe hanged for a while, {}",
                         mq,
                         pq.getTryUnlockTimes());
@@ -114,9 +116,9 @@ public class RebalancePushImpl extends RebalanceImpl {
     }
 
     private boolean unlockDelay(final MessageQueue mq, final ProcessQueue pq) {
-
         if (pq.hasTempMessage()) {
             log.info("[{}]unlockDelay, begin {} ", mq.hashCode(), mq);
+            // 当pq内msgTreeMap有数据，则延迟20秒后才执行释放队列分布式锁的逻辑（感觉是为了确保全局范围内只有一个消费任务在运行）
             this.defaultMQPushConsumerImpl.getmQClientFactory().getScheduledExecutorService().schedule(new Runnable() {
                 @Override
                 public void run() {
@@ -125,6 +127,7 @@ public class RebalancePushImpl extends RebalanceImpl {
                 }
             }, UNLOCK_DELAY_TIME_MILLS, TimeUnit.MILLISECONDS);
         } else {
+            // 走到这里说明当前消费者本地的消费任务已经退出了，可以直接释放broker端的分布式锁了
             this.unlock(mq, true);
         }
         return true;

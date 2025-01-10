@@ -52,6 +52,7 @@ public class ProcessQueue {
     /**
      * A subset of msgTreeMap, will only be used when orderly consume
      */
+    // 顺序消费时用来临时存放消息的对象
     private final TreeMap<Long, MessageExt> consumingMsgOrderlyTreeMap = new TreeMap<Long, MessageExt>();
     private final AtomicLong tryUnlockTimes = new AtomicLong(0);
     private volatile long queueOffsetMax = 0L;
@@ -278,6 +279,7 @@ public class ProcessQueue {
                 }
                 this.consumingMsgOrderlyTreeMap.clear();
                 if (offset != null) {
+                    // 消费者下一条要消费消息的offset
                     return offset + 1;
                 }
             } finally {

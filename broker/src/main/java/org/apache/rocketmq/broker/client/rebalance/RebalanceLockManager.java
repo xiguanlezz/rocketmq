@@ -29,9 +29,13 @@ import org.apache.rocketmq.common.message.MessageQueue;
 
 public class RebalanceLockManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.REBALANCE_LOCK_LOGGER_NAME);
+
+    // 分布式锁的持有时长为60秒
     private final static long REBALANCE_LOCK_MAX_LIVE_TIME = Long.parseLong(System.getProperty(
         "rocketmq.broker.rebalance.lockMaxLiveTime", "60000"));
     private final Lock lock = new ReentrantLock();
+
+    // key为消费者组名，value为map，其中map的key为mq，value为具体的锁对象（包含最新活跃时间戳和clientId）
     private final ConcurrentMap<String/* group */, ConcurrentHashMap<MessageQueue, LockEntry>> mqLockTable =
         new ConcurrentHashMap<String, ConcurrentHashMap<MessageQueue, LockEntry>>(1024);
 
@@ -116,9 +120,9 @@ public class RebalanceLockManager {
 
     public Set<MessageQueue> tryLockBatch(final String group, final Set<MessageQueue> mqs,
         final String clientId) {
+        // 根据内存中的mqLockTable，初始化已经锁住和未锁住的mq集合
         Set<MessageQueue> lockedMqs = new HashSet<MessageQueue>(mqs.size());
         Set<MessageQueue> notLockedMqs = new HashSet<MessageQueue>(mqs.size());
-
         for (MessageQueue mq : mqs) {
             if (this.isLocked(group, mq, clientId)) {
                 lockedMqs.add(mq);
@@ -140,6 +144,7 @@ public class RebalanceLockManager {
                     for (MessageQueue mq : notLockedMqs) {
                         LockEntry lockEntry = groupValue.get(mq);
                         if (null == lockEntry) {
+                            // 此时是第一次占有该锁
                             lockEntry = new LockEntry();
                             lockEntry.setClientId(clientId);
                             groupValue.put(mq, lockEntry);
@@ -151,14 +156,17 @@ public class RebalanceLockManager {
                         }
 
                         if (lockEntry.isLocked(clientId)) {
+                            // 如果锁的主人就是自己，那就更新锁的续约时长
                             lockEntry.setLastUpdateTimestamp(System.currentTimeMillis());
                             lockedMqs.add(mq);
                             continue;
                         }
 
+                        // 走到这里，说明锁的主人不是自己
                         String oldClientId = lockEntry.getClientId();
 
                         if (lockEntry.isExpired()) {
+                            // 此时如果分布式锁过期了，那就占有该锁
                             lockEntry.setClientId(clientId);
                             lockEntry.setLastUpdateTimestamp(System.currentTimeMillis());
                             log.warn(
@@ -185,7 +193,7 @@ public class RebalanceLockManager {
                 log.error("putMessage exception", e);
             }
         }
-
+        // 返回当前消费者持有的队列锁集合
         return lockedMqs;
     }
 
@@ -257,9 +265,9 @@ public class RebalanceLockManager {
         }
 
         public boolean isExpired() {
+            // 如果锁持有时长超过60秒，则分布式锁已经过期
             boolean expired =
                 (System.currentTimeMillis() - this.lastUpdateTimestamp) > REBALANCE_LOCK_MAX_LIVE_TIME;
-
             return expired;
         }
     }

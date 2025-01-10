@@ -147,6 +147,7 @@ public abstract class RebalanceImpl {
             requestBody.getMqSet().add(mq);
 
             try {
+                // 向broker发起获取队列分布式锁的RPC请求，返回当前消费者持有队列的锁集合
                 Set<MessageQueue> lockedMq =
                     this.mQClientFactory.getMQClientAPIImpl().lockBatchMQ(findBrokerResult.getBrokerAddr(), requestBody, 1000);
                 for (MessageQueue mmqq : lockedMq) {
@@ -172,6 +173,8 @@ public abstract class RebalanceImpl {
     }
 
     public void lockAll() {
+        // 将分配给当前消费者全部的mq按照brokerName分组
+        // 那全部mq怎么来呢？客户端实例定时从namesrv拉取的
         HashMap<String, Set<MessageQueue>> brokerMqs = this.buildProcessQueueTableByBrokerName();
 
         Iterator<Entry<String, Set<MessageQueue>>> it = brokerMqs.entrySet().iterator();
@@ -184,6 +187,7 @@ public abstract class RebalanceImpl {
                 continue;
 
             FindBrokerResult findBrokerResult = this.mQClientFactory.findBrokerAddressInSubscribe(brokerName, MixAll.MASTER_ID, true);
+            // 只有broker的master节点才需要向其发起批量续约分布式锁的请求
             if (findBrokerResult != null) {
                 LockBatchRequestBody requestBody = new LockBatchRequestBody();
                 requestBody.setConsumerGroup(this.consumerGroup);
@@ -191,24 +195,28 @@ public abstract class RebalanceImpl {
                 requestBody.setMqSet(mqs);
 
                 try {
+                    // 从broker获取到当前消费者持有的队列锁集合
                     Set<MessageQueue> lockOKMQSet =
                         this.mQClientFactory.getMQClientAPIImpl().lockBatchMQ(findBrokerResult.getBrokerAddr(), requestBody, 1000);
-
+                    // 按照broker返回的结果占有锁
                     for (MessageQueue mq : lockOKMQSet) {
                         ProcessQueue processQueue = this.processQueueTable.get(mq);
                         if (processQueue != null) {
                             if (!processQueue.isLocked()) {
                                 log.info("the message queue locked OK, Group: {} {}", this.consumerGroup, mq);
                             }
-
+                            // 占有锁
                             processQueue.setLocked(true);
+                            // 保存续约时间
                             processQueue.setLastLockTimestamp(System.currentTimeMillis());
                         }
                     }
+                    // 清理pq内存中的过期锁
                     for (MessageQueue mq : mqs) {
                         if (!lockOKMQSet.contains(mq)) {
                             ProcessQueue processQueue = this.processQueueTable.get(mq);
                             if (processQueue != null) {
+                                // 修改锁的持有状态，这时消费任务不能消费
                                 processQueue.setLocked(false);
                                 log.warn("the message queue locked Failed, Group: {} {}", this.consumerGroup, mq);
                             }
@@ -398,10 +406,12 @@ public abstract class RebalanceImpl {
 
         List<PullRequest> pullRequestList = new ArrayList<PullRequest>();
         for (MessageQueue mq : mqSet) {
+            // 条件成立，说明当前mq是rbl对象之后新分配给当前消费者的队列（当然客户端第一次启动时也会走到这逻辑）
             if (!this.processQueueTable.containsKey(mq)) {
-                // 条件成立，说明当前mq是rbl对象之后新分配给当前消费者的队列（当然客户端第一次启动时也会走到这逻辑）
+                // 顺序消费时给当前消费者新分配mq时，需要先从broker端获取队列的分布式锁
                 if (isOrder && !this.lock(mq)) {
                     log.warn("doRebalance, {}, add a new mq failed, {}, because lock failed", consumerGroup, mq);
+                    // 获取分布式锁失败，则直接处理下个mq
                     continue;
                 }
 

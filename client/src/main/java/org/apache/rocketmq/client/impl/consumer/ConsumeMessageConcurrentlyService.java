@@ -427,6 +427,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
             ConsumeConcurrentlyContext context = new ConsumeConcurrentlyContext(messageQueue);
             // 消费状态
             ConsumeConcurrentlyStatus status = null;
+            // 将重复消费的topic改为原topic
             defaultMQPushConsumerImpl.resetRetryAndNamespace(msgs, defaultMQPushConsumer.getConsumerGroup());
 
             ConsumeMessageContext consumeMessageContext = null;

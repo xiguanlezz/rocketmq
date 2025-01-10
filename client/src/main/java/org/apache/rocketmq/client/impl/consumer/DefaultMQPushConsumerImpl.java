@@ -361,7 +361,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 // 参数一：从服务器端拉取下来且经过客户端过滤的消息列表
                                 // 参数二：客户端本地mq的处理队列
                                 // 参数三：mq
-                                // 参数四：只有顺序消费游泳
+                                // 参数四：只有顺序消费有用
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
                                     processQueue,
