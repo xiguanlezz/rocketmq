@@ -119,6 +119,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             ConsumeMessageContext context = buildConsumeMessageContext(namespace, requestHeader, request);
             this.executeConsumeMessageHookAfter(context);
         }
+        // 获取消费者组的配置信息
         SubscriptionGroupConfig subscriptionGroupConfig =
             this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getGroup());
         if (null == subscriptionGroupConfig) {
@@ -134,18 +135,21 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         }
 
         if (subscriptionGroupConfig.getRetryQueueNums() <= 0) {
+            // 条件成立，说明当前订阅组的配置信息为：该组不支持消息重试
+            // 有些场景可能就是不想要支持重试消息，可通过控制台对订阅组配置进行设置
             response.setCode(ResponseCode.SUCCESS);
             response.setRemark(null);
             return CompletableFuture.completedFuture(response);
         }
 
         String newTopic = MixAll.getRetryTopic(requestHeader.getGroup());
+        // 因为subscriptionGroupConfig.getRetryQueueNums()一般就是1，所以计算出来的queueIdInt一般就是0
         int queueIdInt = Math.abs(this.random.nextInt() % 99999999) % subscriptionGroupConfig.getRetryQueueNums();
         int topicSysFlag = 0;
         if (requestHeader.isUnitMode()) {
             topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
         }
-
+        //  获取“重试主题”的配置信息，这一步获取出来的主题配置队列数一般为1
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
             newTopic,
             subscriptionGroupConfig.getRetryQueueNums(),
@@ -161,6 +165,8 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             response.setRemark(String.format("the topic[%s] sending message is forbidden", newTopic));
             return CompletableFuture.completedFuture(response);
         }
+
+        // 从存储模块中根据消息的物理偏移量查询出消息（内部先查询出这条消息的size，然后再根据offset和size查出整条消息）
         MessageExt msgExt = this.brokerController.getMessageStore().lookMessageByOffset(requestHeader.getOffset());
         if (null == msgExt) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -168,14 +174,18 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             return CompletableFuture.completedFuture(response);
         }
 
+        // 获取原始消息的topic
         final String retryTopic = msgExt.getProperty(MessageConst.PROPERTY_RETRY_TOPIC);
         if (null == retryTopic) {
+            // 走到这里，说明当前读取出来的消息是第一次被回退，给这条消息添加“RETRY_TOPIC”属性，值为“消息的主题”
             MessageAccessor.putProperty(msgExt, MessageConst.PROPERTY_RETRY_TOPIC, msgExt.getTopic());
         }
+        // 设置刷盘状态为：异步
         msgExt.setWaitStoreMsgOK(false);
 
+        // 获取延迟级别，一般是0
         int delayLevel = requestHeader.getDelayLevel();
-
+        // 获取订阅组配置信息中最大重试次数，一般为16
         int maxReconsumeTimes = subscriptionGroupConfig.getRetryMaxTimes();
         if (request.getVersion() >= MQVersion.Version.V3_4_9.ordinal()) {
             maxReconsumeTimes = requestHeader.getMaxReconsumeTimes();
@@ -183,9 +193,10 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         if (msgExt.getReconsumeTimes() >= maxReconsumeTimes 
             || delayLevel < 0) {
+            // 获取死信主题，规则：%DLQ%consumeGroup
             newTopic = MixAll.getDLQTopic(requestHeader.getGroup());
+            // 获取死信主题的队列id，一般是0
             queueIdInt = Math.abs(this.random.nextInt() % 99999999) % DLQ_NUMS_PER_GROUP;
-
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(newTopic,
                     DLQ_NUMS_PER_GROUP,
                     PermName.PERM_WRITE, 0);
@@ -195,9 +206,13 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                 return CompletableFuture.completedFuture(response);
             }
         } else {
+            // 常规情况会走到这里。。。
             if (0 == delayLevel) {
+                // 当delayLevel为0时，延迟级别由broker端控制。延迟级别从3开始，每重试一次，延迟级别 + 1
                 delayLevel = 3 + msgExt.getReconsumeTimes();
             }
+            // 将延迟级别设置到消息的properties中，key为“DELAY”
+            // 消息存储室，会检查“DELAY”属性，如果属性值 > 0，会将消息的主题和队列再次修改为调度主题和调度队列id
             msgExt.setDelayTimeLevel(delayLevel);
         }
 
@@ -214,10 +229,14 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setBornTimestamp(msgExt.getBornTimestamp());
         msgInner.setBornHost(msgExt.getBornHost());
         msgInner.setStoreHost(msgExt.getStoreHost());
+        // 消息重试次数为原offset定位出来的msg重试次数 + 1
         msgInner.setReconsumeTimes(msgExt.getReconsumeTimes() + 1);
-
+        // 获取出最原始msg的消息id
         String originMsgId = MessageAccessor.getOriginMessageId(msgExt);
+        // UtilAll.isBlank(originMsgId)返回true，说明msgExt时第一次被返回到broker，使用msgExt的msgId作为originMessageId
+        // UtilAll.isBlank(originMsgId)返回false，说明“原始消息”已经重试不止一次了，使用msgExt的“ORIGIN_MESSAGE_ID”的属性值作为originMessageId
         MessageAccessor.setOriginMessageId(msgInner, UtilAll.isBlank(originMsgId) ? msgExt.getMsgId() : originMsgId);
+        // 在commitLog.asyncPutMessage方法执行时，如果消息的延迟级别 > 0，会将消息投递到调度主题即“SCHEDULE_TOPIC_XXXX”下，queueId为延迟级别 - 1
         CompletableFuture<PutMessageResult> putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
         return putMessageResult.thenApply((r) -> {
             if (r != null) {
