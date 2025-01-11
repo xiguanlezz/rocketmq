@@ -141,6 +141,7 @@ public abstract class ServiceThread implements Runnable {
             log.error("Interrupted", e);
         } finally {
             hasNotified.set(false);
+            // 正常醒来后，会调用onWaitEnd方法
             this.onWaitEnd();
         }
     }
