@@ -1058,6 +1058,7 @@ public class CommitLog {
             // 同步刷盘
             final GroupCommitService service = (GroupCommitService) this.flushCommitLogService;
             if (messageExt.isWaitStoreMsgOK()) {
+                // result.getWroteOffset()表示本次写入消息的起始偏移量
                 GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes());
                 service.putRequest(request);
                 // 写消息线程获取到request的future对象
@@ -1093,10 +1094,12 @@ public class CommitLog {
     public void handleHA(AppendMessageResult result, PutMessageResult putMessageResult, MessageExt messageExt) {
         if (BrokerRole.SYNC_MASTER == this.defaultMessageStore.getMessageStoreConfig().getBrokerRole()) {
             HAService service = this.defaultMessageStore.getHaService();
+            // Message暴露出来的构造函数中，messageExt.isWaitStoreMsgOK()默认返回true
             if (messageExt.isWaitStoreMsgOK()) {
                 // Determine whether to wait
                 if (service.isSlaveOK(result.getWroteOffset() + result.getWroteBytes())) {
                     GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes());
+                    // 往对象中塞入，唤醒
                     service.putRequest(request);
                     service.getWaitNotifyObject().wakeupAll();
                     PutMessageStatus replicaStatus = null;
@@ -1113,6 +1116,7 @@ public class CommitLog {
                 }
                 // Slave problem
                 else {
+                    // 走到这里，说明slave同步进度落后太多了，可能是slave节点挂了
                     // Tell the producer, slave not available
                     putMessageResult.setPutMessageStatus(PutMessageStatus.SLAVE_NOT_AVAILABLE);
                 }
@@ -1398,6 +1402,7 @@ public class CommitLog {
     class FlushRealTimeService extends FlushCommitLogService {
         // 用于控制强制刷盘周期
         private long lastFlushTimestamp = 0;
+        // 控制日志打印，不过日志打印部分代码被注释掉了。。。
         private long printTimes = 0;
 
         public void run() {

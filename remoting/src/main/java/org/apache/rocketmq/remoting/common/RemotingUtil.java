@@ -171,6 +171,7 @@ public class RemotingUtil {
             sc.configureBlocking(true);
             sc.socket().setSoLinger(false, -1);
             sc.socket().setTcpNoDelay(true);
+            // 收发缓冲区大小设置为64KB
             sc.socket().setReceiveBufferSize(1024 * 64);
             sc.socket().setSendBufferSize(1024 * 64);
             sc.socket().connect(remote, timeoutMillis);
